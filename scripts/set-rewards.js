@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { ethers } from "ethers";
+import { createHederaEvmProvider } from "../shared/hederaRpc.js";
 
 dotenv.config();
 
@@ -30,11 +31,7 @@ async function setRewards() {
     throw new Error("KNOWLEDGE_POOL_CONTRACT_ADDRESS no está definido en .env");
   }
 
-  const provider = new ethers.JsonRpcProvider(
-    process.env.HEDERA_NETWORK === "mainnet"
-      ? "https://mainnet.hashio.io/api"
-      : "https://testnet.hashio.io/api"
-  );
+  const provider = createHederaEvmProvider();
 
   const wallet = new ethers.Wallet(process.env.HEDERA_PRIVATE_KEY, provider);
   const contract = new ethers.Contract(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS, CONTRACT_ABI, wallet);

@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
 import { chat as llmChat } from "../common/llm.js";
+import { createHederaEvmProvider } from "../../shared/hederaRpc.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
@@ -34,16 +35,28 @@ const HBAR_DECIMALS = 8;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isRpcRateLimited(error) {
+  const raw = [
+    error?.shortMessage,
+    error?.message,
+    error?.info?.responseBody,
+    error?.info?.responseStatus,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return raw.includes("error code: 1015")
+    || raw.includes("429")
+    || raw.includes("exceeded maximum retry limit");
+}
+
 class ExecutorAgent {
   constructor() {
     this.llmChat = llmChat;
     this.accountId = process.env.EXECUTOR_ACCOUNT_ID;
     const privateKey = process.env.EXECUTOR_PRIVATE_KEY || process.env.HEDERA_PRIVATE_KEY;
-    this.provider = new ethers.JsonRpcProvider(
-      process.env.HEDERA_NETWORK === "mainnet"
-        ? "https://mainnet.hashio.io/api"
-        : "https://testnet.hashio.io/api"
-    );
+    this.provider = createHederaEvmProvider();
     this.wallet = new ethers.Wallet(privateKey, this.provider);
     this.contract = new ethers.Contract(
       process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS,
@@ -53,6 +66,11 @@ class ExecutorAgent {
     this.running = false;
     this.polling = false;
     this.pendingExecutions = new Set();
+    this.scanCursor = 1;
+    this.maxItemsPerCycle = Math.max(
+      1,
+      parseInt(process.env.EXECUTOR_MAX_ITEMS_PER_CYCLE || "8", 10)
+    );
     this.flowOrder = (process.env.KNOWLEDGE_FLOW_ORDER || "auto").toLowerCase();
     this.flowOrderResolved = this.flowOrder === "validate-first" || this.flowOrder === "execute-first"
       ? this.flowOrder
@@ -132,6 +150,7 @@ class ExecutorAgent {
       if (balance < totalReward) {
         console.log(
           `[EXECUTOR] ⚙️ Pool insuficiente: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR < ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR requeridos`
+          `[EXECUTOR] ⚙️ Pool insuficiente: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR < ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR requeridos`
         );
         return;
       }
@@ -173,55 +192,7 @@ class ExecutorAgent {
     console.log(`[EXECUTOR] ⚙️ Recompensa total por tarea: ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR`);
     console.log(`[EXECUTOR] 🔄 Flow order mode: ${this.flowOrderResolved || "auto"}`);
 
-    const clearBacklog = async () => {
-      const count = await this.contract.knowledgeCount();
-      console.log(`[EXECUTOR] 📊 Contract has ${count.toString()} items`);
-      if (count === 0n) {
-        console.log("[EXECUTOR] ℹ️ No items yet, waiting...");
-        return;
-      }
-
-      let executedCount = 0;
-      const total = Number(count);
-      for (let i = 1; i <= total; i++) {
-        try {
-          const item = await this.contract.getKnowledge(i);
-          const validated = item[3];
-          const executed = item[4];
-          const executor = item[6];
-
-          const needsExecution = this.shouldExecuteItem(validated, executed, executor);
-
-          if (!needsExecution) {
-            process.stdout.write(".");
-            if (i % 10 === 0) {
-              console.log(`\n[EXECUTOR] 📊 Scanned ${i}/${total} items...`);
-            }
-            continue;
-          }
-
-          console.log(`\n[EXECUTOR] 🎯 Found unexecuted item #${i} — processing`);
-          await this.executeAuto(i);
-          executedCount += 1;
-
-          if (i % 10 === 0) {
-            console.log(`[EXECUTOR] 📊 Scanned ${i}/${total} items...`);
-          }
-        } catch (err) {
-          console.log(`\n[EXECUTOR] ⚠️ Skip #${i}: bad data`);
-          continue;
-        }
-      }
-
-      console.log("");
-      console.log(`[EXECUTOR] ✅ Loop complete — checked all ${total} items`);
-      console.log(`[EXECUTOR] ✅ Scan complete: ${executedCount} executed this cycle`);
-      console.log("[EXECUTOR] ✅ Backlog cleared");
-    };
-
-    await clearBacklog();
-
-    const pollInterval = parseInt(process.env.EXECUTOR_POLL_SECONDS || "15", 10) * 1000;
+    const pollInterval = parseInt(process.env.EXECUTOR_POLL_SECONDS || "45", 10) * 1000;
     const checkAndExecute = async () => {
       if (!this.running || this.polling) return;
       this.polling = true;
@@ -234,48 +205,54 @@ class ExecutorAgent {
         }
 
         let executedCount = 0;
+        let scannedCount = 0;
         const total = Number(count);
-        for (let i = 1; i <= total; i++) {
+        const startId = Math.min(this.scanCursor, total);
+
+        for (let offset = 0; offset < this.maxItemsPerCycle; offset++) {
+          const i = ((startId - 1 + offset) % total) + 1;
           try {
             const item = await this.contract.getKnowledge(i);
             const validated = item[3];
             const executed = item[4];
             const executor = item[6];
+            scannedCount += 1;
 
             const needsExecution = this.shouldExecuteItem(validated, executed, executor);
 
             if (!needsExecution) {
-              process.stdout.write(".");
-              if (i % 10 === 0) {
-                console.log(`\n[EXECUTOR] 📊 Scanned ${i}/${total} items...`);
-              }
               continue;
             }
 
-            console.log(`\n[EXECUTOR] 🎯 Found unexecuted item #${i} — processing`);
+            console.log(`[EXECUTOR] 🎯 Found unexecuted item #${i} — processing`);
             await this.executeAuto(i);
             executedCount += 1;
-
-            if (i % 10 === 0) {
-              console.log(`[EXECUTOR] 📊 Scanned ${i}/${total} items...`);
-            }
           } catch (err) {
-            console.log(`\n[EXECUTOR] ⚠️ Skip #${i}: bad data`);
-            continue;
+            if (isRpcRateLimited(err)) {
+              console.log("[EXECUTOR] ⏳ RPC rate limit detectado (1015/429). Se pausa este ciclo.");
+              break;
+            }
+            console.log(`[EXECUTOR] ⚠️ Skip #${i}: bad data`);
           }
         }
 
-        console.log("");
-        console.log(`[EXECUTOR] ✅ Loop complete — checked all ${total} items`);
+        this.scanCursor = ((startId - 1 + this.maxItemsPerCycle) % total) + 1;
+
+        console.log(`[EXECUTOR] 📊 Scanned ${scannedCount}/${total} items this cycle`);
         console.log(`[EXECUTOR] ✅ Scan complete: ${executedCount} executed this cycle`);
       } catch (error) {
+        if (isRpcRateLimited(error)) {
+          console.error("[EXECUTOR] ⏳ Polling throttled by RPC provider (1015/429)");
+          return;
+        }
         console.error("[EXECUTOR] ⚙️ Error en polling:", error);
       } finally {
         this.polling = false;
       }
     };
 
-    console.log(`[EXECUTOR] ✅ Backlog cleared — watching for new items every ${parseInt(process.env.EXECUTOR_POLL_SECONDS || "15", 10)}s`);
+    console.log(`[EXECUTOR] ✅ Watching for new items every ${parseInt(process.env.EXECUTOR_POLL_SECONDS || "45", 10)}s (batch=${this.maxItemsPerCycle})`);
+    await checkAndExecute();
     setInterval(checkAndExecute, pollInterval);
   }
 
