@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 
 dotenv.config();
 
-const HBAR_DECIMALS = 8;
+/** EVM uses wei (18 decimals); Hedera min non-zero value is 10^10 wei (1 tinybar) */
 const HASHSCAN_BASE =
   process.env.HEDERA_NETWORK === "mainnet"
     ? "https://hashscan.io/mainnet"
@@ -45,15 +45,20 @@ async function fundPool() {
   const amount = process.env.FUND_AMOUNT
     ? BigInt(process.env.FUND_AMOUNT)
     : process.env.FUND_AMOUNT_HBAR
-      ? ethers.parseUnits(process.env.FUND_AMOUNT_HBAR, HBAR_DECIMALS)
-      : ethers.parseUnits("0.1", HBAR_DECIMALS);
+      ? ethers.parseEther(process.env.FUND_AMOUNT_HBAR)
+      : ethers.parseEther("0.1");
 
   if (amount <= 0n) {
     throw new Error("FUND_AMOUNT/FUND_AMOUNT_HBAR debe ser mayor que 0");
   }
 
-  console.log(`Financiando pool con ${ethers.formatUnits(amount, HBAR_DECIMALS)} HBAR...`);
-  console.log(`Recompensa total por tarea: ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR`);
+  const minWei = 10n ** 10n; // Hedera min non-zero value
+  if (amount > 0n && amount < minWei) {
+    throw new Error(`FUND_AMOUNT debe ser >= 1 tinybar (10^10 wei). Recibido: ${amount.toString()} wei`);
+  }
+
+  console.log(`Financiando pool con ${ethers.formatEther(amount)} HBAR...`);
+  console.log(`Recompensa total por tarea: ${ethers.formatEther(totalReward)} HBAR`);
   const tasksPossible = totalReward > 0n ? amount / totalReward : 0n;
   console.log(`Tareas posibles con este fondo: ~${tasksPossible.toString()}`);
 
@@ -66,7 +71,7 @@ async function fundPool() {
   console.log(`HashScan contrato: ${hashscanContractUrl(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS)}`);
 
   const balance = await contract.poolBalance();
-  console.log(`Balance actual del pool: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR`);
+  console.log(`Balance actual del pool: ${ethers.formatEther(balance)} HBAR`);
 }
 
 fundPool().catch(console.error);
