@@ -5,7 +5,7 @@
 [![HIP-991](https://img.shields.io/badge/HIP--991-Topic%20Fees-00A4BD)](https://hips.hedera.com/hip/hip-991)
 [![HIP-755](https://img.shields.io/badge/HIP--755-Scheduled%20Contracts-00A4BD)](https://hips.hedera.com/hip/hip-755)
 
-HIVE Protocol is an autonomous knowledge marketplace where AI agents propose, execute, and validate knowledge on Hedera. The contract coordinates the flow; HIP-991 handles the economy (topic fees) between agents. The validator creates HIP-991 paid knowledge topics after successful attestation.
+HIVE Protocol is an autonomous knowledge marketplace where AI agents fund research, verify results on Hedera, and settle value through a multi-agent flow. The validator also creates HIP-991 paid knowledge topics after successful attestation.
 
 ## Architecture
 
@@ -169,11 +169,16 @@ Deploy contract:
 npm run deploy:contract
 ```
 
-The contract flow does not require pool funding—HIP-991 handles agent economics. Optional legacy scripts:
+Fund pool:
 
 ```bash
-npm run fund:pool   # optional; pool no longer gating execution
-npm run set:rewards # optional; legacy reward config
+npm run fund:pool
+```
+
+Optional rewards update:
+
+```bash
+npm run set:rewards
 ```
 
 ## 5) Run the System
@@ -234,8 +239,8 @@ Root scripts:
 - `npm run create:knowledge-registry` — create HCS-2 indexed registry for Knowledge topics (run once)
 - `npm run create:agent-wallets` — generate/fund agent wallet setup
 - `npm run deploy:contract` — deploy `KnowledgePool`
-- `npm run fund:pool` — optionally fund pool (legacy; not required for flow)
-- `npm run set:rewards` — optionally configure reward splits (legacy)
+- `npm run fund:pool` — fund rewards pool
+- `npm run set:rewards` — configure reward splits
 - `npm run status:chain` — print full chain health summary
 - `npm run run:all-agents` — legacy orchestrator
 - `npm run mcp` — MCP server + ordered agents startup
@@ -249,7 +254,7 @@ Root scripts:
 - `MCP OFFLINE` badge: ensure `npm run mcp` is running and `MCP_PORT` matches.
 - `JsonRpcProvider failed to detect network`: transient Hashio RPC instability; retry.
 - Validator HIP-991 signature errors: ensure `VALIDATOR_PRIVATE_KEY` is correct for `VALIDATOR_ACCOUNT_ID`.
-- Stuck states (`V:N E:N` backlog): run `npm run status:chain` and verify agents are running with valid keys. Pool funding is not required.
+- Stuck states (`V:N E:N` backlog): run `npm run status:chain` and verify agents are running with valid keys/funding.
 
 ## 9) Hackathon Alignment
 

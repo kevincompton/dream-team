@@ -12,6 +12,8 @@ const CONTRACT_ABI = [
   "function executeKnowledge(uint256 id) public",
   "function getKnowledge(uint256 id) public view returns (address, string memory, uint256, bool, bool, address, address)",
   "function knowledgeCount() public view returns (uint256)",
+  "function poolBalance() public view returns (uint256)",
+  "function totalRewardPerTask() public view returns (uint256)",
   "event KnowledgeExecuted(uint256 indexed id, address indexed executor)",
   "event KnowledgeValidated(uint256 indexed id, address indexed validator)"
 ];
@@ -29,6 +31,7 @@ function hashscanContractUrl(value) {
   return `${HASHSCAN_BASE}/contract/${encodeURIComponent(value)}`;
 }
 
+const HBAR_DECIMALS = 8;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -88,6 +91,10 @@ class ExecutorAgent {
       const receipt = await tx.wait();
       console.log(`[EXECUTOR] ✅ Conocimiento ejecutado. TX: ${receipt.hash}`);
       console.log(`[EXECUTOR] 🔗 HashScan TX: ${hashscanTxUrl(receipt.hash)}`);
+      
+      const balance = await this.contract.poolBalance();
+      console.log(`[EXECUTOR] ✅ Balance del pool tras ejecución: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR`);
+      
       return receipt;
     } catch (error) {
       console.error(`[EXECUTOR] ⚙️ Error al ejecutar ID ${id}:`, error);
@@ -118,6 +125,16 @@ class ExecutorAgent {
       console.log(`[EXECUTOR] ⚙️ Item #${id} not executed → processing...`);
       await delay(3000);
       console.log(`[EXECUTOR] ⚙️ Simulating research for: "${String(content).slice(0, 80)}${String(content).length > 80 ? "..." : ""}"`);
+
+      const balance = await this.contract.poolBalance();
+      const totalReward = await this.contract.totalRewardPerTask();
+      
+      if (balance < totalReward) {
+        console.log(
+          `[EXECUTOR] ⚙️ Pool insuficiente: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR < ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR requeridos`
+        );
+        return;
+      }
 
       await this.execute(id);
       console.log(`[EXECUTOR] ✅ Item #${id} executed successfully`);
@@ -156,8 +173,13 @@ class ExecutorAgent {
     console.log(`[EXECUTOR] ⚙️ Cuenta: ${this.accountId || "(no definida)"}`);
     console.log(`[EXECUTOR] ⚙️ Conectado a contrato: ${process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS}`);
     console.log(`[EXECUTOR] 🔗 HashScan contrato: ${hashscanContractUrl(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS)}`);
-    console.log(`[EXECUTOR] 🔄 Flow order mode: ${this.flowOrderResolved || "auto"}`);
     this.running = true;
+
+    const balance = await this.contract.poolBalance();
+    const totalReward = await this.contract.totalRewardPerTask();
+    console.log(`[EXECUTOR] ⚙️ Balance del pool: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR`);
+    console.log(`[EXECUTOR] ⚙️ Recompensa total por tarea: ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR`);
+    console.log(`[EXECUTOR] 🔄 Flow order mode: ${this.flowOrderResolved || "auto"}`);
 
     const clearBacklog = async () => {
       const count = await this.contract.knowledgeCount();

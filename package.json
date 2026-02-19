@@ -27,10 +27,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
-    "@hashgraph/sdk": "^2.47.0",
+    "@hashgraph/sdk": "^2.80.0",
     "@hashgraphonline/standards-sdk": "^0.1.159",
-    "dotenv": "^16.4.5",
-    "ethers": "^6.13.0"
+    "@langchain/core": "^1.1.26",
+    "@langchain/langgraph": "^1.1.5",
+    "dotenv": "^16.6.1",
+    "ethers": "^6.13.0",
+    "hedera-agent-kit": "^3.8.0",
+    "langchain": "^1.2.25"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
