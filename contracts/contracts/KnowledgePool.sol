@@ -43,9 +43,6 @@ contract KnowledgePool {
     );
     event RewardsConfigured(uint256 proposer, uint256 validator, uint256 executor);
 
-    error InsufficientPoolBalance();
-    error TransferFailed();
-
     constructor(uint256 _rewardProposer, uint256 _rewardValidator, uint256 _rewardExecutor) {
         owner = msg.sender;
         rewardProposer = _rewardProposer;
@@ -107,27 +104,10 @@ contract KnowledgePool {
         require(knowledgePool[id].validated, "Knowledge must be validated first");
         require(!knowledgePool[id].executed, "Knowledge already executed");
 
-        uint256 total = rewardProposer + rewardValidator + rewardExecutor;
-        if (address(this).balance < total) revert InsufficientPoolBalance();
-
         knowledgePool[id].executed = true;
         knowledgePool[id].executor = msg.sender;
 
-        address payable p = payable(knowledgePool[id].proposer);
-        address payable v = payable(knowledgePool[id].validator);
-        address payable e = payable(msg.sender);
-
-        if (rewardProposer > 0 && p != address(0)) _sendHBAR(p, rewardProposer);
-        if (rewardValidator > 0 && v != address(0)) _sendHBAR(v, rewardValidator);
-        if (rewardExecutor > 0 && e != address(0)) _sendHBAR(e, rewardExecutor);
-
         emit KnowledgeExecuted(id, msg.sender);
-        emit RewardsPaid(id, p, v, e, rewardProposer, rewardValidator, rewardExecutor);
-    }
-
-    function _sendHBAR(address payable to, uint256 amount) private {
-        (bool sent, ) = to.call{value: amount}("");
-        if (!sent) revert TransferFailed();
     }
 
     /// Balance del pool (HBAR disponible para recompensas)

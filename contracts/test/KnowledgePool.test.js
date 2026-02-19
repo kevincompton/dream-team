@@ -21,36 +21,25 @@ describe("KnowledgePool", function () {
     expect(await pool.poolBalance()).to.equal(ethers.parseEther("0.15"));
   });
 
-  it("debería proponer, validar, ejecutar y pagar recompensas", async function () {
-    const poolBefore = await pool.poolBalance();
-    const pBefore = await hre.ethers.provider.getBalance(proposer.address);
-    const vBefore = await hre.ethers.provider.getBalance(validator.address);
-    const eBefore = await hre.ethers.provider.getBalance(executor.address);
-
+  it("debería proponer, validar y ejecutar (sin pool ni recompensas en el flujo)", async function () {
     await pool.connect(proposer).proposeKnowledge("test content");
     await pool.connect(validator).validateKnowledge(1);
     await pool.connect(executor).executeKnowledge(1);
 
-    const poolAfter = await pool.poolBalance();
-    const pAfter = await hre.ethers.provider.getBalance(proposer.address);
-    const vAfter = await hre.ethers.provider.getBalance(validator.address);
-    const eAfter = await hre.ethers.provider.getBalance(executor.address);
-
-    const totalR = R * 3n;
-    expect(poolBefore - poolAfter).to.equal(totalR);
-    // Cada rol recibe R; como además pagan gas por su tx, el balance neto es R - gas
-    expect(pAfter - pBefore).to.be.gte(R - ethers.parseEther("0.01"));
-    expect(vAfter - vBefore).to.be.gte(R - ethers.parseEther("0.01"));
-    expect(eAfter - eBefore).to.be.gte(R - ethers.parseEther("0.01"));
+    const k = await pool.getKnowledge(1);
+    expect(k.executed).to.equal(true);
+    expect(k.executor).to.equal(executor.address);
   });
 
-  it("debería revertir si el pool no tiene balance suficiente", async function () {
+  it("debería ejecutar sin pool financiado", async function () {
     const Poor = await hre.ethers.getContractFactory("KnowledgePool");
     const poorPool = await Poor.deploy(R, R, R);
     await poorPool.waitForDeployment();
     await poorPool.connect(proposer).proposeKnowledge("x");
     await poorPool.connect(validator).validateKnowledge(1);
-    await expect(poorPool.connect(executor).executeKnowledge(1)).to.be.revertedWithCustomError(poorPool, "InsufficientPoolBalance");
+    await poorPool.connect(executor).executeKnowledge(1);
+    const k = await poorPool.getKnowledge(1);
+    expect(k.executed).to.equal(true);
   });
 
   it("getKnowledge debe incluir executor tras ejecutar", async function () {

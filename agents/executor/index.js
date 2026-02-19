@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
 import { chat as llmChat } from "../common/llm.js";
+import { ensureExecutorTopic } from "./hcs-topic.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
@@ -11,8 +12,6 @@ const CONTRACT_ABI = [
   "function executeKnowledge(uint256 id) public",
   "function getKnowledge(uint256 id) public view returns (address, string memory, uint256, bool, bool, address, address)",
   "function knowledgeCount() public view returns (uint256)",
-  "function poolBalance() public view returns (uint256)",
-  "function totalRewardPerTask() public view returns (uint256)",
   "event KnowledgeExecuted(uint256 indexed id, address indexed executor)",
   "event KnowledgeValidated(uint256 indexed id, address indexed validator)"
 ];
@@ -30,7 +29,6 @@ function hashscanContractUrl(value) {
   return `${HASHSCAN_BASE}/contract/${encodeURIComponent(value)}`;
 }
 
-const HBAR_DECIMALS = 8;
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -57,6 +55,7 @@ class ExecutorAgent {
     this.flowOrderResolved = this.flowOrder === "validate-first" || this.flowOrder === "execute-first"
       ? this.flowOrder
       : null;
+    this.topicId = null;
   }
 
   resolveFlowOrderFromError(errorMessage) {
@@ -89,11 +88,6 @@ class ExecutorAgent {
       const receipt = await tx.wait();
       console.log(`[EXECUTOR] ✅ Conocimiento ejecutado. TX: ${receipt.hash}`);
       console.log(`[EXECUTOR] 🔗 HashScan TX: ${hashscanTxUrl(receipt.hash)}`);
-      
-      // Verificar recompensas pagadas
-      const balance = await this.contract.poolBalance();
-      console.log(`[EXECUTOR] ✅ Balance del pool tras ejecución: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR`);
-      
       return receipt;
     } catch (error) {
       console.error(`[EXECUTOR] ⚙️ Error al ejecutar ID ${id}:`, error);
@@ -125,17 +119,6 @@ class ExecutorAgent {
       await delay(3000);
       console.log(`[EXECUTOR] ⚙️ Simulating research for: "${String(content).slice(0, 80)}${String(content).length > 80 ? "..." : ""}"`);
 
-      // Verificar que hay fondos suficientes
-      const balance = await this.contract.poolBalance();
-      const totalReward = await this.contract.totalRewardPerTask();
-      
-      if (balance < totalReward) {
-        console.log(
-          `[EXECUTOR] ⚙️ Pool insuficiente: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR < ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR requeridos`
-        );
-        return;
-      }
-
       await this.execute(id);
       console.log(`[EXECUTOR] ✅ Item #${id} executed successfully`);
     } catch (error) {
@@ -160,18 +143,21 @@ class ExecutorAgent {
       console.warn("[EXECUTOR] ⚙️ EXECUTOR_ACCOUNT_ID no definido; usando solo private key");
     }
 
+    try {
+      this.topicId = await ensureExecutorTopic({
+        memo: `HIVE Executor sensor - ${this.accountId || "default"}`,
+      });
+      console.log(`[EXECUTOR] 📡 HIP-991 topic assigned: ${this.topicId}`);
+    } catch (err) {
+      console.warn("[EXECUTOR] ⚠️ Could not init HIP-991 topic:", err?.message || err);
+    }
+
     console.log("[EXECUTOR] ⚙️ Agente Executor iniciado");
     console.log(`[EXECUTOR] ⚙️ Cuenta: ${this.accountId || "(no definida)"}`);
     console.log(`[EXECUTOR] ⚙️ Conectado a contrato: ${process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS}`);
     console.log(`[EXECUTOR] 🔗 HashScan contrato: ${hashscanContractUrl(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS)}`);
-    this.running = true;
-
-    // Verificar balance del pool
-    const balance = await this.contract.poolBalance();
-    const totalReward = await this.contract.totalRewardPerTask();
-    console.log(`[EXECUTOR] ⚙️ Balance del pool: ${ethers.formatUnits(balance, HBAR_DECIMALS)} HBAR`);
-    console.log(`[EXECUTOR] ⚙️ Recompensa total por tarea: ${ethers.formatUnits(totalReward, HBAR_DECIMALS)} HBAR`);
     console.log(`[EXECUTOR] 🔄 Flow order mode: ${this.flowOrderResolved || "auto"}`);
+    this.running = true;
 
     const clearBacklog = async () => {
       const count = await this.contract.knowledgeCount();

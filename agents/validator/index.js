@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
-import { Client, TopicCreateTransaction, CustomFixedFee, AccountId, PrivateKey } from "@hashgraph/sdk";
+import { createAndRegisterKnowledgeTopic } from "./hcs-topic.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
@@ -29,41 +29,6 @@ function hashscanContractUrl(value) {
 }
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-
-function getValidatorSdkKey() {
-  const key = (process.env.VALIDATOR_PRIVATE_KEY || process.env.HEDERA_PRIVATE_KEY || "").trim();
-  if (key.startsWith("0x") || /^[0-9a-fA-F]{64}$/.test(key)) {
-    return PrivateKey.fromStringECDSA(key);
-  }
-  try {
-    return PrivateKey.fromStringDer(key);
-  } catch {
-    return PrivateKey.fromString(key);
-  }
-}
-
-async function createHIP991Topic(knowledgeId, content) {
-  const client = Client.forTestnet();
-  client.setOperator(AccountId.fromString(process.env.VALIDATOR_ACCOUNT_ID), getValidatorSdkKey());
-
-  const customFee = new CustomFixedFee()
-    .setAmount(10000000)
-    .setFeeCollectorAccountId(AccountId.fromString(process.env.VALIDATOR_ACCOUNT_ID));
-
-  const topicTx = await new TopicCreateTransaction()
-    .setTopicMemo(`HIVE Knowledge #${knowledgeId}: ${String(content).substring(0, 50)}`)
-    .setCustomFees([customFee])
-    .execute(client);
-
-  const receipt = await topicTx.getReceipt(client);
-  const topicId = receipt.topicId.toString();
-
-  console.log(`[VALIDATOR] 🏷️  HIP-991 Topic created: ${topicId}`);
-  console.log(`[VALIDATOR] 💰 Fee: 0.1 HBAR per access`);
-  console.log(`[VALIDATOR] 🔗 https://hashscan.io/testnet/topic/${topicId}`);
-
-  return topicId;
-}
 
 class ValidatorAgent {
   constructor() {
@@ -132,8 +97,8 @@ class ValidatorAgent {
       console.log(`[VALIDATOR] 🔗 HashScan TX: ${hashscanTxUrl(tx.hash)}`);
 
       if (process.env.VALIDATOR_ACCOUNT_ID) {
-        const topicId = await createHIP991Topic(id, item.content);
-        console.log(`[VALIDATOR] ✅ #${id} fully settled with HIP-991 topic: ${topicId}`);
+        const topicId = await createAndRegisterKnowledgeTopic(id, item.content);
+        console.log(`[VALIDATOR] ✅ #${id} fully settled with HIP-991 topic (HCS-2 indexed): ${topicId}`);
       } else {
         console.log(`[VALIDATOR] ⚠️ #${id} VALIDATOR_ACCOUNT_ID missing, skipping HIP-991 topic creation`);
       }
