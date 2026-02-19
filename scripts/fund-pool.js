@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { ethers } from "ethers";
+import { createHederaEvmProvider } from "../shared/hederaRpc.js";
 
 dotenv.config();
 
@@ -28,11 +29,7 @@ async function fundPool() {
     throw new Error("KNOWLEDGE_POOL_CONTRACT_ADDRESS no está definido en .env");
   }
 
-  const provider = new ethers.JsonRpcProvider(
-    process.env.HEDERA_NETWORK === "mainnet"
-      ? "https://mainnet.hashio.io/api"
-      : "https://testnet.hashio.io/api"
-  );
+  const provider = createHederaEvmProvider();
   const wallet = new ethers.Wallet(process.env.HEDERA_PRIVATE_KEY, provider);
   const contract = new ethers.Contract(
     process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS,
@@ -46,10 +43,12 @@ async function fundPool() {
     ? BigInt(process.env.FUND_AMOUNT)
     : process.env.FUND_AMOUNT_HBAR
       ? ethers.parseEther(process.env.FUND_AMOUNT_HBAR)
+      : process.env.FUND_AMOUNT_WEI
+        ? BigInt(process.env.FUND_AMOUNT_WEI)
       : ethers.parseEther("0.1");
 
   if (amount <= 0n) {
-    throw new Error("FUND_AMOUNT/FUND_AMOUNT_HBAR debe ser mayor que 0");
+    throw new Error("FUND_AMOUNT_HBAR/FUND_AMOUNT_WEI debe ser mayor que 0");
   }
 
   const minWei = 10n ** 10n; // Hedera min non-zero value

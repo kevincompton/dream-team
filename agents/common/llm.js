@@ -44,7 +44,7 @@ async function chatOllama(messages, options) {
 async function chatGroq(messages, options) {
   const key = process.env.GROQ_API_KEY;
   if (!key) throw new Error("GROQ_API_KEY no definido. Regístrate en https://console.groq.com");
-  const model = options.model || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+  const model = options.model || process.env.LLM_MODEL || process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {

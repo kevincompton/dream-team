@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
 import { createAndRegisterKnowledgeTopic } from "./hcs-topic.js";
+import { createHederaEvmProvider } from "../../shared/hederaRpc.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
@@ -30,15 +31,27 @@ function hashscanContractUrl(value) {
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
+function isRpcRateLimited(error) {
+  const raw = [
+    error?.shortMessage,
+    error?.message,
+    error?.info?.responseBody,
+    error?.info?.responseStatus,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return raw.includes("error code: 1015")
+    || raw.includes("429")
+    || raw.includes("exceeded maximum retry limit");
+}
+
 class ValidatorAgent {
   constructor() {
     this.accountId = process.env.VALIDATOR_ACCOUNT_ID;
     const privateKey = process.env.VALIDATOR_PRIVATE_KEY || process.env.HEDERA_PRIVATE_KEY;
-    this.provider = new ethers.JsonRpcProvider(
-      process.env.HEDERA_NETWORK === "mainnet"
-        ? "https://mainnet.hashio.io/api"
-        : "https://testnet.hashio.io/api"
-    );
+    this.provider = createHederaEvmProvider();
     this.wallet = new ethers.Wallet(privateKey, this.provider);
     this.contract = new ethers.Contract(
       process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS,
@@ -47,6 +60,11 @@ class ValidatorAgent {
     );
     this.running = false;
     this.polling = false;
+    this.scanCursor = 1;
+    this.maxItemsPerCycle = Math.max(
+      1,
+      parseInt(process.env.VALIDATOR_MAX_ITEMS_PER_CYCLE || "8", 10)
+    );
     this.flowOrder = (process.env.KNOWLEDGE_FLOW_ORDER || "auto").toLowerCase();
     this.flowOrderResolved = this.flowOrder === "validate-first" || this.flowOrder === "execute-first"
       ? this.flowOrder
@@ -137,7 +155,11 @@ class ValidatorAgent {
         const total = Number(await this.contract.knowledgeCount());
         if (total === 0) return;
 
-        for (let i = 1; i <= total; i++) {
+        const startId = Math.min(this.scanCursor, total);
+        let scannedCount = 0;
+
+        for (let offset = 0; offset < this.maxItemsPerCycle; offset++) {
+          const i = ((startId - 1 + offset) % total) + 1;
           try {
             const raw = await this.contract.getKnowledge(i);
             const item = {
@@ -149,20 +171,33 @@ class ValidatorAgent {
               validator: raw[5],
               executor: raw[6],
             };
+            scannedCount += 1;
             await this.processItem(i, item);
           } catch (err) {
+            if (isRpcRateLimited(err)) {
+              console.log("[VALIDATOR] ⏳ RPC rate limit detectado (1015/429). Se pausa este ciclo.");
+              break;
+            }
             console.log(`[VALIDATOR] ⚠️ Skip #${i}: ${err?.shortMessage || err?.message || "read failed"}`);
-            continue;
           }
         }
+
+        this.scanCursor = ((startId - 1 + this.maxItemsPerCycle) % total) + 1;
+        console.log(`[VALIDATOR] 📊 Scanned ${scannedCount}/${total} items this cycle`);
       } catch (error) {
+        if (isRpcRateLimited(error)) {
+          console.error("[VALIDATOR] ⏳ Polling throttled by RPC provider (1015/429)");
+          return;
+        }
         console.error("[VALIDATOR] 🔐 Error en polling:", error);
       } finally {
         this.polling = false;
       }
     };
 
-    setInterval(runLoop, 25000);
+    const intervalSeconds = parseInt(process.env.VALIDATOR_POLL_SECONDS || "60", 10);
+    console.log(`[VALIDATOR] 🔄 Polling every ${intervalSeconds}s (batch=${this.maxItemsPerCycle})`);
+    setInterval(runLoop, intervalSeconds * 1000);
     runLoop();
   }
 

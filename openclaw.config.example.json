@@ -1,0 +1,47 @@
+// ~/.openclaw/openclaw.json
+// Copy this file to ~/.openclaw/openclaw.json and fill in your values.
+// JSON5 format — comments are allowed.
+{
+  agents: {
+    defaults: {
+      workspace: "~/.openclaw/workspace",
+    },
+  },
+
+  // Load HIVE research skill from this project
+  skills: {
+    load: {
+      // IMPORTANT: update this path to match where you cloned the repo
+      extraDirs: ["C:/Users/jngv0/OneDrive/Desktop/ETHDenver/WIKIAGENTS/hive-protocol/skills"],
+    },
+  },
+
+  // ── OPTION A: Telegram (easiest — just needs a BotFather token) ──────────
+  channels: {
+    telegram: {
+      enabled: true,
+      // Get this from @BotFather on Telegram: /newbot
+      botToken: "8301631906:AAEbRMYwKBrhOs04XGFAY36SzN_JMmZyd1o",
+      dmPolicy: "pairing", // first DM needs approval: run `openclaw pairing list telegram`
+      groups: {
+        "*": { requireMention: true }, // in groups: mention the bot
+      },
+    },
+  },
+
+  // ── OPTION B: WhatsApp (scan QR code) ────────────────────────────────────
+  // Uncomment and run: openclaw channels login --channel whatsapp
+  // channels: {
+  //   whatsapp: {
+  //     enabled: true,
+  //     dmPolicy: "pairing",
+  //   },
+  // },
+
+  // ── HIVE MCP URL (passed to the skill script) ─────────────────────────────
+  env: {
+    vars: {
+      HIVE_MCP_URL: "http://localhost:3001",
+    },
+  },
+}

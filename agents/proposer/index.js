@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
+import { createHederaEvmProvider } from "../../shared/hederaRpc.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
@@ -59,11 +60,7 @@ class ProposerAgent {
   constructor() {
     this.accountId = process.env.PROPOSER_ACCOUNT_ID;
     const privateKey = process.env.PROPOSER_PRIVATE_KEY || process.env.HEDERA_PRIVATE_KEY;
-    this.provider = new ethers.JsonRpcProvider(
-      process.env.HEDERA_NETWORK === "mainnet"
-        ? "https://mainnet.hashio.io/api"
-        : "https://testnet.hashio.io/api"
-    );
+    this.provider = createHederaEvmProvider();
     this.wallet = new ethers.Wallet(privateKey, this.provider);
     this.contract = new ethers.Contract(
       process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS,
