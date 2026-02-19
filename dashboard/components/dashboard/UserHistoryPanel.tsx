@@ -44,7 +44,8 @@ export function UserHistoryPanel({ requests }: UserHistoryPanelProps) {
   return (
     <Panel
       title="Historial de Usuario"
-      className="h-full"
+      className="h-full min-h-0"
+      contentClassName="min-h-0 overflow-y-auto pr-1"
       rightSlot={<span className="font-mono text-[10px] text-hive-secondary">{userWallet || "NEXT_PUBLIC_USER_WALLET no definido"}</span>}
     >
       <div className="space-y-2">
@@ -73,8 +74,11 @@ export function UserHistoryPanel({ requests }: UserHistoryPanelProps) {
               <span className="text-hive-text">{item.action}</span>
               <span className="font-mono text-hive-primary">{item.amount.toFixed(2)} HBAR</span>
             </div>
-            <p className="mt-1 font-mono text-[10px] text-hive-muted">Topic: {truncateAddress(item.topicId, 8, 4)}</p>
-            <p className="mt-1 font-mono text-[10px] text-hive-muted">
+            <p className="mt-1 font-mono text-[10px] text-hive-muted" title={item.topicId}>Topic: {truncateAddress(item.topicId, 8, 4)}</p>
+            <p
+              className="mt-1 font-mono text-[10px] text-hive-muted"
+              title={`P: ${item.proposer || "-"} | V: ${item.validator || "-"} | E: ${item.executor || "-"}`}
+            >
               P: {truncateAddress(item.proposer || "-", 8, 4)} | V: {truncateAddress(item.validator || "-", 8, 4)} | E: {truncateAddress(item.executor || "-", 8, 4)}
             </p>
           </motion.div>

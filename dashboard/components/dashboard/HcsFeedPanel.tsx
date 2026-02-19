@@ -27,7 +27,7 @@ export function HcsFeedPanel({ messages }: HcsFeedPanelProps) {
   }, [messages]);
 
   return (
-    <Panel title="Live HCS Feed" className="h-full" contentClassName="h-[300px]">
+    <Panel title="Live HCS Feed" className="h-full min-h-0" contentClassName="min-h-0">
       <div
         ref={containerRef}
         className="h-full overflow-y-auto rounded-md border border-hive-border/60 bg-hive-terminal p-3 font-mono text-xs"
@@ -45,7 +45,7 @@ export function HcsFeedPanel({ messages }: HcsFeedPanelProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                [{new Date(message.timestamp).toLocaleTimeString()}] [{message.agent}] {message.action}{" "}
+                [{new Date(message.timestamp).toLocaleTimeString()}] [{message.agent}] <span title={message.action}>{message.action}</span>{" "}
                 <a
                   href={hashscanSearchUrl(message.hash)}
                   target="_blank"

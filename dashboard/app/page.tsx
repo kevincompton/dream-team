@@ -93,7 +93,7 @@ export default function Home() {
   if (!isMounted) {
     return (
       <div className="min-h-screen bg-hive-bg text-hive-text">
-        <main className="mx-auto min-w-[1280px] px-6 py-8">
+        <main className="mx-auto w-full max-w-[1700px] px-6 py-8">
           <div className="h-8 w-56 animate-pulse rounded bg-hive-border/30" />
           <div className="mt-4 h-[760px] animate-pulse rounded-xl border border-hive-border bg-hive-card/40" />
         </main>
@@ -105,15 +105,15 @@ export default function Home() {
     <div className="relative min-h-screen overflow-x-hidden bg-hive-bg text-hive-text">
       <TopNavbar snapshot={snapshot} mcpConnected={mcpConnected} />
 
-      <main className="mx-auto w-full px-6 py-4">
+      <main className="mx-auto w-full max-w-[1700px] px-6 py-4 pb-8">
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(300px,1fr)_minmax(520px,2fr)_minmax(300px,1fr)]">
-          <section data-panel-id="left-column" className="h-[calc(100vh-190px)] min-h-[720px] overflow-hidden max-xl:h-auto">
+          <section data-panel-id="left-column" className="min-h-0">
             <AgentStatusPanel agents={snapshot.agents} />
           </section>
 
           <section
             data-panel-id="center-column"
-            className="grid h-[calc(100vh-190px)] min-h-[720px] grid-rows-[1fr_1fr] gap-4 overflow-hidden max-xl:h-auto"
+            className="grid min-h-0 grid-rows-[minmax(360px,auto)_minmax(360px,auto)] gap-4"
           >
             <KnowledgeFlowPanel requests={snapshot.requests} flowCounts={flowCounts} />
             <HcsFeedPanel messages={snapshot.hcsFeed} />
@@ -121,7 +121,7 @@ export default function Home() {
 
           <section
             data-panel-id="right-column"
-            className="grid h-[calc(100vh-190px)] min-h-[720px] grid-rows-[1.05fr_1fr_0.95fr_1fr] gap-4 overflow-hidden max-xl:h-auto"
+            className="grid min-h-0 grid-rows-[minmax(320px,auto)_minmax(280px,auto)_minmax(240px,auto)_minmax(280px,auto)] gap-4"
           >
             <EconomyPanel economy={snapshot.economy} />
             <KnowledgeGraphPanel nodes={snapshot.graph.nodes} links={snapshot.graph.links} />

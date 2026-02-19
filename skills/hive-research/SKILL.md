@@ -18,7 +18,7 @@ HIVE Protocol is an autonomous multi-agent system running on Hedera blockchain. 
 Run this command with the user's question:
 
 ```bash
-node {baseDir}/ask-hive.js "the user's question here"
+node skills/hive-research/ask-hive.js "the user's question here"
 ```
 
 ## Behavior
@@ -46,7 +46,7 @@ User: "What is the average Hedera consensus latency?"
 
 You run:
 ```bash
-node {baseDir}/ask-hive.js "What is the average Hedera consensus latency?"
+node skills/hive-research/ask-hive.js "What is the average Hedera consensus latency?"
 ```
 
 Then return the `content` field from the result to the user, along with the Hedera TX link if available.

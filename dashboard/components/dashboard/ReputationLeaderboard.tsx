@@ -14,7 +14,7 @@ export function ReputationLeaderboard({ agents }: ReputationLeaderboardProps) {
   const ranked = [...agents].sort((a, b) => b.reputation - a.reputation).slice(0, 3);
 
   return (
-    <Panel title="Reputation Leaderboard" className="h-full">
+    <Panel title="Reputation Leaderboard" className="h-full min-h-0" contentClassName="min-h-0 overflow-y-auto pr-1">
       <div className="space-y-2">
         {ranked.map((agent, index) => {
           const width = Math.min(100, agent.reputation);
@@ -41,7 +41,7 @@ export function ReputationLeaderboard({ agents }: ReputationLeaderboardProps) {
                   transition={{ duration: 0.5 }}
                 />
               </div>
-              <p className="text-[11px] text-hive-muted">{agent.specialty}</p>
+              <p className="text-[11px] text-hive-muted" title={agent.specialty}>{agent.specialty}</p>
             </div>
           );
         })}
