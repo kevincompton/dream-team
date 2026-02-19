@@ -79,12 +79,32 @@ OpenClaw client reasons over the data → generates response
 Client replies via OpenClaw → User sees answer on WhatsApp
 ```
 
+## Agent Architecture
+
+Agents are built with **hedera-agent-kit** + **LangChain** tool-calling pattern:
+
+- Each agent initializes `HederaLangchainToolkit` with Hedera SDK plugins
+- Custom `StructuredTool` classes wrap domain logic (contract calls, HCS topic creation)
+- `ChatOpenAI` (gpt-4o-mini) drives tool selection via `AgentExecutor`
+- Outer poll loops stay in TypeScript for reliability; LLM handles decisions/tool calls
+
+```
+src/
+  common/           # Shared config, contract ABI, utilities
+  shared/           # Hedera EVM RPC provider
+  tools/            # Shared StructuredTools (GetKnowledge, KnowledgeCount, PoolBalance)
+  agents/
+    proposer/       # LLM generates novel research questions
+    executor/       # Hybrid poll-loop + LLM-driven execution
+    validator/      # Hybrid poll-loop + LLM-driven validation + HIP-991 topics
+```
+
 ## 1) Prerequisites
 
-- Node.js `>=22`
+- Node.js `>=20`
 - npm `>=10`
 - Hedera testnet account(s) with HBAR
-- API key for one LLM provider (Groq/Ollama/Anthropic)
+- OpenAI API key (used by LangChain agent framework)
 
 ## 2) Clone and Install
 
@@ -126,9 +146,8 @@ EXECUTOR_PRIVATE_KEY=0x...
 VALIDATOR_ACCOUNT_ID=0.0.xxxxxxx
 VALIDATOR_PRIVATE_KEY=0x...
 
-# LLM provider
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
+# OpenAI (used by hedera-agent-kit + LangChain)
+OPENAI_API_KEY=sk-...
 
 # Dashboard mode
 NEXT_PUBLIC_USE_MOCK_DATA=false
@@ -242,10 +261,14 @@ Root scripts:
 - `npm run fund:pool` — fund rewards pool
 - `npm run set:rewards` — configure reward splits
 - `npm run status:chain` — print full chain health summary
-- `npm run run:all-agents` — legacy orchestrator
+- `npm run run:all-agents` — orchestrator with status monitoring
 - `npm run mcp` — MCP server + ordered agents startup
 - `npm run sensors` — run executor only
-- `npm run start:agents` — start agents helper script
+- `npm run start:agents` — start all agents (simple)
+- `npm run dev:proposer` — run proposer in dev mode
+- `npm run dev:executor` — run executor in dev mode
+- `npm run dev:validator` — run validator in dev mode
+- `npm run build` — compile TypeScript to dist/
 - `npm run start:dashboard` — run Next.js dashboard
 
 ## 8) Common Troubleshooting

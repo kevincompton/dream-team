@@ -6,10 +6,13 @@
   "type": "module",
   "workspaces": [
     "contracts",
-    "agents/*",
     "dashboard"
   ],
   "scripts": {
+    "build": "tsc",
+    "dev:proposer": "tsx src/agents/proposer/index.ts",
+    "dev:executor": "tsx src/agents/executor/index.ts",
+    "dev:validator": "tsx src/agents/validator/index.ts",
     "setup:hedera": "node scripts/setup-hedera.js",
     "create:hcs-topic": "node scripts/create-hcs-topic.js",
     "create:executor-registry": "node scripts/create-executor-registry.js",
@@ -18,27 +21,30 @@
     "fund:pool": "node scripts/fund-pool.js",
     "set:rewards": "node scripts/set-rewards.js",
     "status:chain": "node scripts/check-chain-state.js",
-    "run:all-agents": "node scripts/run-all-agents.js",
-    "mcp": "node scripts/mcp.js",
-    "sensors": "node agents/executor/index.js",
-    "start:agents": "node scripts/start-agents.js",
+    "run:all-agents": "tsx scripts/run-all-agents.ts",
+    "mcp": "tsx scripts/mcp.ts",
+    "sensors": "tsx src/agents/executor/index.ts",
+    "start:agents": "tsx scripts/start-agents.ts",
     "start:dashboard": "cd dashboard && npm run dev",
     "create:knowledge-registry": "node scripts/create-knowledge-registry.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.27.0",
     "@hashgraph/sdk": "^2.80.0",
     "@hashgraphonline/standards-sdk": "^0.1.159",
-    "@langchain/core": "^1.1.26",
-    "@langchain/langgraph": "^1.1.5",
+    "@langchain/core": "^0.3.66",
+    "@langchain/openai": "^0.3.17",
     "dotenv": "^16.6.1",
     "ethers": "^6.13.0",
-    "hedera-agent-kit": "^3.8.0",
-    "langchain": "^1.2.25"
+    "hedera-agent-kit": "^3.0.7",
+    "langchain": "^0.3.30",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.22.0"
+    "@types/node": "^22.10.2",
+    "hardhat": "^2.22.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=22.0.0"

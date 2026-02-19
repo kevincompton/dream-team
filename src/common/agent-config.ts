@@ -1,0 +1,32 @@
+export interface EnvironmentConfig {
+  HEDERA_NETWORK?: string;
+  HEDERA_ACCOUNT_ID?: string;
+  HEDERA_PRIVATE_KEY?: string;
+  HEDERA_EVM_RPC_URL?: string;
+  HEDERA_EVM_RPC_URLS?: string;
+  HEDERA_EVM_CHAIN_ID?: string;
+
+  OPENAI_API_KEY?: string;
+
+  KNOWLEDGE_POOL_CONTRACT_ADDRESS?: string;
+
+  PROPOSER_ACCOUNT_ID?: string;
+  PROPOSER_PRIVATE_KEY?: string;
+  PROPOSER_INTERVAL_SECONDS?: string;
+
+  EXECUTOR_ACCOUNT_ID?: string;
+  EXECUTOR_PRIVATE_KEY?: string;
+  EXECUTOR_POLL_SECONDS?: string;
+  EXECUTOR_MAX_ITEMS_PER_CYCLE?: string;
+  EXECUTOR_REGISTRY_TOPIC_ID?: string;
+
+  VALIDATOR_ACCOUNT_ID?: string;
+  VALIDATOR_PRIVATE_KEY?: string;
+  VALIDATOR_POLL_SECONDS?: string;
+  VALIDATOR_MAX_ITEMS_PER_CYCLE?: string;
+  KNOWLEDGE_REGISTRY_TOPIC_ID?: string;
+
+  KNOWLEDGE_FLOW_ORDER?: string;
+
+  MCP_PORT?: string;
+}
