@@ -20,6 +20,45 @@ ExecutorAgent (Sensor Agent) — researches and executes
 ValidatorAgent — attests + creates HIP-991 topic  
 ↓ paid knowledge topic live on Hedera HCS
 
+### Proposed HCS Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         HEDERA CONSENSUS SERVICE (HCS)                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  EXECUTOR TOPICS (HIP-991) — one per Executor
+  ┌─────────────────────┐  ┌─────────────────────┐
+  │ Executor A          │  │ Executor B          │  ...
+  │ • HIP-755 triggers  │  │ • Sensor data       │
+  │   sensing → writes  │  │ • Validator pays    │
+  │   sensor data       │  │   to query          │
+  └──────────┬──────────┘  └──────────┬──────────┘
+             │                        │
+             │  Validator pays to query
+             │  Executor responds (from topic)
+             │
+             ▼  Validator attests → answer added as message
+  ┌─────────────────────────────────────────────────────┐
+  │  KNOWLEDGE TOPICS (HIP-991)                          │
+  │  • Attested answers (Executor responses)             │
+  │  • User pays to read                                 │
+  │  • Knowledge base for responding to user questions  │
+  └─────────────────────────────────────────────────────┘
+
+  Flow: User question → MCP routes → Validator queries Executor (pays) →
+        Executor responds from its topic → Validator attests →
+        Answer added to Knowledge topic → Knowledge topics = user response source.
+
+  Note: MCP key in Fee Exempt Key List on all topics — reads without paying.
+```
+
+### Suggested Changes for HCS
+
+1. **Remove KnowledgePool contract** — HIP-991 can handle the economy. Topic fees (pay-to-read) replace the pool-based reward flow; Validator pays Executor topics, User pays Knowledge topics.
+
+2. **Replace ProposerAgent with MCP routing** — MCP reads from all topics (fee-exempt) and determines which agents and/or attestations are relevant for the user's question. No separate proposer; questions come from users via OpenClaw, and MCP routes to the right Executor(s) or existing Knowledge topics.
+
 ## 1) Prerequisites
 
 - Node.js `>=22`
