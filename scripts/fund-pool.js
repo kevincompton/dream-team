@@ -39,25 +39,19 @@ async function fundPool() {
 
   const totalReward = await contract.totalRewardPerTask();
 
+  const TINYBAR_DECIMALS = 8;
   const amount = process.env.FUND_AMOUNT
     ? BigInt(process.env.FUND_AMOUNT)
     : process.env.FUND_AMOUNT_HBAR
-      ? ethers.parseEther(process.env.FUND_AMOUNT_HBAR)
-      : process.env.FUND_AMOUNT_WEI
-        ? BigInt(process.env.FUND_AMOUNT_WEI)
-      : ethers.parseEther("0.1");
+      ? ethers.parseUnits(process.env.FUND_AMOUNT_HBAR, TINYBAR_DECIMALS)
+      : ethers.parseUnits("0.1", TINYBAR_DECIMALS);
 
   if (amount <= 0n) {
-    throw new Error("FUND_AMOUNT_HBAR/FUND_AMOUNT_WEI debe ser mayor que 0");
+    throw new Error("FUND_AMOUNT_HBAR must be greater than 0");
   }
 
-  const minWei = 10n ** 10n; // Hedera min non-zero value
-  if (amount > 0n && amount < minWei) {
-    throw new Error(`FUND_AMOUNT debe ser >= 1 tinybar (10^10 wei). Recibido: ${amount.toString()} wei`);
-  }
-
-  console.log(`Financiando pool con ${ethers.formatEther(amount)} HBAR...`);
-  console.log(`Recompensa total por tarea: ${ethers.formatEther(totalReward)} HBAR`);
+  console.log(`Financiando pool con ${ethers.formatUnits(amount, 8)} HBAR...`);
+  console.log(`Recompensa total por tarea: ${ethers.formatUnits(totalReward, 8)} HBAR`);
   const tasksPossible = totalReward > 0n ? amount / totalReward : 0n;
   console.log(`Tareas posibles con este fondo: ~${tasksPossible.toString()}`);
 
@@ -70,7 +64,7 @@ async function fundPool() {
   console.log(`HashScan contrato: ${hashscanContractUrl(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS)}`);
 
   const balance = await contract.poolBalance();
-  console.log(`Balance actual del pool: ${ethers.formatEther(balance)} HBAR`);
+  console.log(`Balance actual del pool: ${ethers.formatUnits(balance, 8)} HBAR`);
 }
 
 fundPool().catch(console.error);
