@@ -59,6 +59,26 @@ ValidatorAgent — attests + creates HIP-991 topic
 
 2. **Replace ProposerAgent with MCP routing** — MCP reads from all topics (fee-exempt) and determines which agents and/or attestations are relevant for the user's question. No separate proposer; questions come from users via OpenClaw, and MCP routes to the right Executor(s) or existing Knowledge topics.
 
+3. **OpenClaw client receives topic data from MCP** — MCP connects the OpenClaw client instance to relevant Executor topics and attestation topics. If relevant data lives on an Executor, MCP triggers the Validator Agent to buy answers from those Executors; the Validator updates its attestation topics with the new messages, then MCP returns the attestation data (including any new data from executor responses) to the client. The client reasons over the data and produces a response. Flow:
+
+```
+User (WhatsApp): "What's the temperature trend in building A and B?"
+    ↓
+OpenClaw agent receives message
+    ↓
+MCP determines relevant topics (Executor topics + attestation topics)
+    ↓
+If data needed from Executors → MCP triggers Validator Agent
+    ↓
+Validator buys answers from Executors, attests, updates attestation topics
+    ↓
+MCP returns all topic data (attestations + Executor messages) to the client
+    ↓
+OpenClaw client reasons over the data → generates response
+    ↓
+Client replies via OpenClaw → User sees answer on WhatsApp
+```
+
 ## 1) Prerequisites
 
 - Node.js `>=22`
