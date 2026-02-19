@@ -80,6 +80,112 @@ function countByStatus(target: KnowledgeStatus, requests: DashboardSnapshot["req
   return requests.filter((request) => request.status === target).length;
 }
 
+function normalizeWallet(value?: string) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isEvmAddress(value?: string) {
+  return /^0x[0-9a-f]{40}$/i.test((value ?? "").trim());
+}
+
+function selectRoleRequests(
+  requests: DashboardSnapshot["requests"],
+  role: "proposer" | "validator" | "executor",
+  wallet?: string,
+) {
+  const normalizedWallet = normalizeWallet(wallet);
+
+  const walletMatches = requests.filter((request) => {
+    if (!normalizedWallet || !isEvmAddress(normalizedWallet)) return false;
+    if (role === "proposer") return normalizeWallet(request.proposer) === normalizedWallet;
+    if (role === "validator") return normalizeWallet(request.validator) === normalizedWallet;
+    return normalizeWallet(request.executor) === normalizedWallet;
+  });
+
+  if (walletMatches.length > 0) {
+    return walletMatches;
+  }
+
+  if (role === "proposer") {
+    return requests;
+  }
+
+  if (role === "validator") {
+    return requests.filter((request) => !!request.validator);
+  }
+
+  return requests.filter((request) => !!request.executor || request.status === "SETTLED");
+}
+
+function toStars(reputation: number) {
+  return Math.max(1, Math.min(5, Math.round(reputation / 20)));
+}
+
+function toReputation(
+  role: "proposer" | "validator" | "executor",
+  relatedRequests: DashboardSnapshot["requests"],
+  allRequests: DashboardSnapshot["requests"],
+) {
+  if (relatedRequests.length === 0 || allRequests.length === 0) {
+    return 55;
+  }
+
+  const settled = relatedRequests.filter((request) => request.status === "SETTLED").length;
+  const executing = relatedRequests.filter((request) => request.status === "EXECUTING").length;
+  const funded = relatedRequests.filter((request) => request.status === "FUNDED").length;
+  const proposed = relatedRequests.filter((request) => request.status === "PROPOSED").length;
+  const attested = relatedRequests.filter((request) => request.status === "ATTESTED").length;
+
+  const participation = relatedRequests.length / Math.max(1, allRequests.length);
+  const settledRatio = settled / Math.max(1, relatedRequests.length);
+
+  const roleScore =
+    role === "proposer"
+      ? settled * 2.2 + funded * 1.1 + proposed * 0.8
+      : role === "validator"
+        ? settled * 2.6 + attested * 1.8 + executing * 0.6
+        : settled * 2.8 + executing * 1.4;
+
+  const volumeScore = Math.min(20, relatedRequests.length * 0.9);
+  const participationScore = Math.min(14, participation * 14);
+  const qualityScore = Math.min(16, settledRatio * 16);
+
+  const raw = 45 + roleScore + volumeScore + participationScore + qualityScore;
+  return Math.max(40, Math.min(99, Math.round(raw)));
+}
+
+function buildRoleSparkline(
+  relatedRequests: DashboardSnapshot["requests"],
+) {
+  const now = Date.now();
+  const bucketMs = 30 * 60 * 1000;
+
+  const values = Array.from({ length: 10 }).map((_, index) => {
+    const start = now - (10 - index) * bucketMs;
+    const end = start + bucketMs;
+
+    return relatedRequests.filter((request) => {
+      const createdAt = request.createdAt;
+      return createdAt >= start && createdAt < end;
+    }).length;
+  });
+
+  if (values.some((value) => value > 0)) {
+    return values;
+  }
+
+  const fallbackBase = relatedRequests.length;
+
+  return Array.from({ length: 10 }).map((_, index) => Math.max(0, fallbackBase - (9 - index)));
+}
+
+function latestRoleActionAt(
+  relatedRequests: DashboardSnapshot["requests"],
+) {
+  if (relatedRequests.length === 0) return Date.now();
+  return Math.max(...relatedRequests.map((request) => request.createdAt));
+}
+
 export function useDashboardData() {
   const useMock = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true";
   const topicId = process.env.NEXT_PUBLIC_HCS_TOPIC_ID;
@@ -140,6 +246,10 @@ export function useDashboardData() {
     const executorAccount = accountIds[1] ?? "0.0.n/a";
     const validatorAccount = accountIds[2] ?? "0.0.n/a";
 
+    const proposerRequests = selectRoleRequests(hedera.requests, "proposer", proposerAccount);
+    const validatorRequests = selectRoleRequests(hedera.requests, "validator", validatorAccount);
+    const executorRequests = selectRoleRequests(hedera.requests, "executor", executorAccount);
+
     const executing = hedera.requests.filter((request) => request.status === "EXECUTING").length;
     const settled = hedera.requests.filter((request) => request.status === "SETTLED").length;
     const proposed = hedera.requests.filter((request) => request.status === "PROPOSED").length;
@@ -178,30 +288,34 @@ export function useDashboardData() {
           ...EMPTY_LIVE_SNAPSHOT.agents[0],
           state: proposed > 0 ? "ACTIVE" : "IDLE",
           wallet: proposerAccount,
-          lastActionAt: Date.now(),
-          totalTransactions: hedera.requests.length,
+          reputation: toReputation("proposer", proposerRequests, hedera.requests),
+          stars: toStars(toReputation("proposer", proposerRequests, hedera.requests)),
+          lastActionAt: latestRoleActionAt(proposerRequests),
+          totalTransactions: proposerRequests.length,
           balance: hedera.accountBalances[proposerAccount] ?? 0,
-          activitySparkline: Array.from({ length: 10 }).map((_, index) => (index % 2 === 0 ? proposed : executing)),
+          activitySparkline: buildRoleSparkline(proposerRequests),
         },
         {
           ...EMPTY_LIVE_SNAPSHOT.agents[1],
           state: executing > 0 ? "EXECUTING" : settled > 0 ? "SETTLED" : "IDLE",
           wallet: executorAccount,
-          lastActionAt: Date.now(),
-          totalTransactions: settled,
+          reputation: toReputation("executor", executorRequests, hedera.requests),
+          stars: toStars(toReputation("executor", executorRequests, hedera.requests)),
+          lastActionAt: latestRoleActionAt(executorRequests),
+          totalTransactions: executorRequests.length,
           balance: hedera.accountBalances[executorAccount] ?? 0,
-          activitySparkline: Array.from({ length: 10 }).map((_, index) => (index % 2 === 0 ? executing : settled)),
+          activitySparkline: buildRoleSparkline(executorRequests),
         },
         {
           ...EMPTY_LIVE_SNAPSHOT.agents[2],
           state: executing > 0 ? "ACTIVE" : settled > 0 ? "SETTLED" : "IDLE",
           wallet: validatorAccount,
-          lastActionAt: Date.now(),
-          totalTransactions: hedera.requests.filter((request) => request.validator).length,
+          reputation: toReputation("validator", validatorRequests, hedera.requests),
+          stars: toStars(toReputation("validator", validatorRequests, hedera.requests)),
+          lastActionAt: latestRoleActionAt(validatorRequests),
+          totalTransactions: validatorRequests.length,
           balance: hedera.accountBalances[validatorAccount] ?? 0,
-          activitySparkline: Array.from({ length: 10 }).map((_, index) =>
-            index % 2 === 0 ? hedera.requests.filter((request) => !!request.validator).length : executing,
-          ),
+          activitySparkline: buildRoleSparkline(validatorRequests),
         },
       ],
       liveStats: {

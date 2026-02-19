@@ -48,7 +48,7 @@ export function AgentStatusPanel({ agents }: AgentStatusPanelProps) {
   }, [agents, previousStates, states]);
 
   return (
-    <Panel title="Agent Status" className="h-full">
+    <Panel title="Agent Status" className="h-full min-h-0" contentClassName="min-h-0 overflow-y-auto pr-1">
       <div className="space-y-3">
         {agents.map((agent) => {
           const chartData = agent.activitySparkline.map((value, index) => ({ point: index, value }));
@@ -71,7 +71,7 @@ export function AgentStatusPanel({ agents }: AgentStatusPanelProps) {
                     <span className="mr-2">{agent.emoji}</span>
                     {agent.name}
                   </p>
-                  <p className="font-mono text-xs text-hive-muted">{truncateAddress(agent.wallet)}</p>
+                  <p className="font-mono text-xs text-hive-muted" title={agent.wallet}>{truncateAddress(agent.wallet)}</p>
                 </div>
                 <AnimatePresence mode="wait">
                   <motion.div

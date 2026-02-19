@@ -29,7 +29,7 @@ export function TopNavbar({ snapshot, mcpConnected }: TopNavbarProps) {
 
   return (
     <header className="border-b border-hive-border bg-hive-bg/90 px-6 py-4 backdrop-blur-xl">
-      <div className="mx-auto flex min-w-[1280px] items-center justify-between gap-4">
+      <div className="mx-auto flex w-full max-w-[1700px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-gradient-to-br from-hive-primary to-hive-secondary p-2 text-hive-bg shadow-glow">
             <Hexagon className="h-4 w-4" />
@@ -61,6 +61,7 @@ export function TopNavbar({ snapshot, mcpConnected }: TopNavbarProps) {
               href={hashscanContractUrl(contractAddress)}
               target="_blank"
               rel="noreferrer"
+              title={contractAddress}
               className="flex items-center gap-1 rounded-full border border-hive-border px-3 py-1.5 font-mono text-xs text-hive-secondary transition hover:border-hive-secondary/60 hover:text-hive-primary"
             >
               {truncateAddress(contractAddress, 8, 6)}
@@ -92,7 +93,7 @@ export function TopNavbar({ snapshot, mcpConnected }: TopNavbarProps) {
           HBAR Circulating: <motion.span className="text-hive-text">{circulatingDisplay}</motion.span>
         </motion.div>
       </div>
-      <div className="mx-auto mt-4 h-px min-w-[1280px] bg-gradient-to-r from-hive-primary/20 via-hive-secondary/35 to-hive-primary/20" />
+      <div className="mx-auto mt-4 h-px w-full max-w-[1700px] bg-gradient-to-r from-hive-primary/20 via-hive-secondary/35 to-hive-primary/20" />
     </header>
   );
 }

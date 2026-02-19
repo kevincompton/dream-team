@@ -7,7 +7,7 @@ interface BottomStatusBarProps {
 export function BottomStatusBar({ liveStats }: BottomStatusBarProps) {
   return (
     <footer className="border-t border-hive-border bg-hive-bg/95 px-6 py-2 text-xs text-hive-muted">
-      <div className="mx-auto grid min-w-[1280px] grid-cols-3 items-center">
+      <div className="mx-auto grid w-full max-w-[1700px] grid-cols-1 gap-1 md:grid-cols-3 md:items-center">
         <div className="font-mono text-left">
           Last block: #{liveStats.lastBlock.toLocaleString()} | Last HCS msg: {liveStats.lastHcsMessageAgo}
         </div>

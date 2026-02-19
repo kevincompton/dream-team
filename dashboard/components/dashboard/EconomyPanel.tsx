@@ -24,7 +24,7 @@ export function EconomyPanel({ economy }: EconomyPanelProps) {
   }, []);
 
   return (
-    <Panel title="HBAR Economy" className="h-full">
+    <Panel title="HBAR Economy" className="h-full min-h-0" contentClassName="min-h-0 overflow-y-auto pr-1">
       <div className="relative mb-4 flex items-center justify-center">
         <svg className="h-36 w-36 -rotate-90">
           <circle cx="72" cy="72" r={radius} stroke="#1E2D3D" strokeWidth="10" fill="none" />

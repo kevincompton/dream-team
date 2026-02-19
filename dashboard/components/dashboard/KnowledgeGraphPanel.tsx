@@ -38,7 +38,7 @@ export function KnowledgeGraphPanel({ nodes, links }: KnowledgeGraphPanelProps) 
   }, []);
 
   return (
-    <Panel title="Knowledge Graph" className="h-full" contentClassName="space-y-2">
+    <Panel title="Knowledge Graph" className="h-full min-h-0" contentClassName="min-h-0 space-y-2 overflow-y-auto pr-1">
       <div ref={containerRef} className="h-44 overflow-hidden rounded-md border border-hive-border/70 bg-hive-bg/40">
         <ForceGraph2D
           graphData={graphData}
@@ -64,8 +64,8 @@ export function KnowledgeGraphPanel({ nodes, links }: KnowledgeGraphPanelProps) 
         {selectedNode ? (
           <>
             <p className="mb-1 font-semibold text-hive-text">{selectedNode.name}</p>
-            <p className="line-clamp-2 text-hive-muted">{selectedNode.question}</p>
-            <p className="mt-1 font-mono text-hive-secondary">Topic: {selectedNode.topicId}</p>
+            <p className="line-clamp-2 text-hive-muted" title={selectedNode.question}>{selectedNode.question}</p>
+            <p className="mt-1 font-mono text-hive-secondary" title={selectedNode.topicId}>Topic: {selectedNode.topicId}</p>
           </>
         ) : (
           <p className="text-hive-muted">Click a node to inspect question and HCS topic ID.</p>
