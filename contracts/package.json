@@ -1,0 +1,18 @@
+{
+  "name": "@hive-protocol/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy": "hardhat run scripts/deploy.js --network hedera"
+  },
+  "devDependencies": {
+    "hardhat": "^2.22.0",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@hive-protocol/scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hashgraph/sdk": "^2.47.0",
+    "dotenv": "^16.4.5"
+  }
+}
