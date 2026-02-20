@@ -1,9 +1,17 @@
 import http from 'http';
+import https from 'https';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from 'dotenv';
 import { ethers } from 'ethers';
+import {
+  Client as HederaClient,
+  AccountId,
+  PrivateKey,
+  TopicMessageSubmitTransaction,
+  TopicId,
+} from '@hashgraph/sdk';
 import { createHederaEvmProvider } from '../src/shared/hedera-rpc.js';
 import { KNOWLEDGE_POOL_ABI } from '../src/common/contract.js';
 import { HBAR_DECIMALS, shortAddress } from '../src/common/utils.js';
@@ -280,6 +288,181 @@ async function waitForKnowledgeResult(
   return null;
 }
 
+// ─── HIP-1215 Device Command Bridge (Mirror Node → Telegram) ────
+
+const DEVICE_COMMAND_TOPIC0 = ethers.id('DeviceCommand(uint256,string)');
+const MIRROR_BASE = process.env.HEDERA_NETWORK === 'mainnet'
+  ? 'https://mainnet.mirrornode.hedera.com'
+  : 'https://testnet.mirrornode.hedera.com';
+const PULSE_POLL_MS = 10_000;
+let lastPulseTimestamp = `${Math.floor(Date.now() / 1000)}.000000000`;
+
+function httpGet(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode}: ${data.slice(0, 200)}`));
+        } else {
+          resolve(data);
+        }
+      });
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+function httpPost(url: string, body: Record<string, unknown>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const parsed = new URL(url);
+    const req = https.request({
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk: Buffer) => { data += chunk; });
+      res.on('end', () => resolve(data));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+interface DeviceCommandEvent {
+  commandId: number;
+  command: string;
+}
+
+function decodeDeviceCommand(log: { topics: string[]; data: string }): DeviceCommandEvent | null {
+  try {
+    const commandId = Number(BigInt(log.topics[1]));
+    const decoded = ethers.AbiCoder.defaultAbiCoder().decode(['string'], log.data);
+    return { commandId, command: decoded[0] as string };
+  } catch (err) {
+    console.warn('[DEVICE-BRIDGE] Decode error:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+async function sendTelegramMessage(text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return;
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const resp = await httpPost(url, { chat_id: chatId, text });
+    const result = JSON.parse(resp);
+    if (!result.ok) {
+      console.warn('[DEVICE-BRIDGE] Telegram API error:', result.description);
+    }
+  } catch (err) {
+    console.warn('[DEVICE-BRIDGE] Telegram send failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+function parseSdkKey(key: string): PrivateKey {
+  const trimmed = key.trim();
+  if (trimmed.startsWith('0x') || /^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return PrivateKey.fromStringECDSA(trimmed);
+  }
+  try {
+    return PrivateKey.fromStringDer(trimmed);
+  } catch {
+    return PrivateKey.fromString(trimmed);
+  }
+}
+
+async function sendHcsMessage(topicId: string, message: string): Promise<void> {
+  const accountId = process.env.HEDERA_ACCOUNT_ID;
+  const privateKey = process.env.HEDERA_PRIVATE_KEY;
+  if (!accountId || !privateKey || !topicId) return;
+
+  try {
+    const network = process.env.HEDERA_NETWORK || 'testnet';
+    const client = network === 'mainnet' ? HederaClient.forMainnet() : HederaClient.forTestnet();
+    client.setOperator(AccountId.fromString(accountId), parseSdkKey(privateKey));
+
+    const tx = await new TopicMessageSubmitTransaction()
+      .setTopicId(TopicId.fromString(topicId))
+      .setMessage(message)
+      .execute(client);
+
+    const receipt = await tx.getReceipt(client);
+    console.log(`[DEVICE-BRIDGE] HCS message sent to ${topicId} (seq: ${receipt.topicSequenceNumber})`);
+  } catch (err) {
+    console.warn('[DEVICE-BRIDGE] HCS send failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+async function pollDeviceCommands(): Promise<void> {
+  const contractAddr = process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS;
+  if (!contractAddr) return;
+
+  const timestampFilter = lastPulseTimestamp ? `&timestamp=gt:${lastPulseTimestamp}` : '';
+  const url = `${MIRROR_BASE}/api/v1/contracts/${contractAddr}/results/logs?order=asc&limit=25${timestampFilter}`;
+
+  try {
+    const body = await httpGet(url);
+    const json = JSON.parse(body);
+    const allLogs: Array<{ topics: string[]; data: string; timestamp: string }> = json.logs || [];
+    const logs = allLogs.filter((l) => l.topics[0] === DEVICE_COMMAND_TOPIC0);
+
+    if (logs.length > 0) {
+      console.log(`[DEVICE-BRIDGE] Found ${logs.length} DeviceCommand event(s)`);
+    }
+
+    for (const log of logs) {
+      const evt = decodeDeviceCommand(log);
+      if (!evt) continue;
+
+      lastPulseTimestamp = log.timestamp;
+      console.log(`[DEVICE-BRIDGE] #${evt.commandId}: "${evt.command}"`);
+
+      await sendTelegramMessage(evt.command);
+
+      if (evt.command === 'request sensor summary') {
+        const knowledgeInboundTopic = process.env.KNOWLEDGE_INBOUND_TOPIC_ID;
+        if (knowledgeInboundTopic) {
+          await sendHcsMessage(knowledgeInboundTopic, 'Provide a summary of today\'s sensor data readings');
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[DEVICE-BRIDGE] Poll error:', err instanceof Error ? err.message : err);
+  }
+}
+
+let pulsePoller: ReturnType<typeof setInterval> | null = null;
+
+function startPulseBridge(): void {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const contract = process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS;
+
+  if (!contract) {
+    console.log('[DEVICE-BRIDGE] No contract address — bridge disabled');
+    return;
+  }
+
+  if (!token || !chatId) {
+    console.log('[DEVICE-BRIDGE] TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing — bridge will only log (no Telegram forwarding)');
+  }
+
+  console.log(`[DEVICE-BRIDGE] Polling Mirror Node every ${PULSE_POLL_MS / 1000}s for DeviceCommand events`);
+  pulsePoller = setInterval(pollDeviceCommands, PULSE_POLL_MS);
+  pollDeviceCommands();
+}
+
+// ─── HTTP Server ────────────────────────────────────────────────
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -367,6 +550,7 @@ async function main(): Promise<void> {
   }
 
   await startAgentsInOrder();
+  startPulseBridge();
 
   server.listen(MCP_PORT, () => {
     console.log(`[MCP] Master Control Program listening on port ${MCP_PORT}`);
@@ -376,6 +560,7 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => {
     process.env.__STOP_ALL_AGENTS__ = '1';
     console.log('\n[MCP] Stopping agents and server...');
+    if (pulsePoller) clearInterval(pulsePoller);
     for (const [, child] of processes) {
       child.kill('SIGINT');
     }

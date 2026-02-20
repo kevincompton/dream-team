@@ -3,7 +3,6 @@ import { StructuredTool } from '@langchain/core/tools';
 import {
   Client,
   TopicCreateTransaction,
-  CustomFixedFee,
   AccountId,
   PrivateKey,
 } from '@hashgraph/sdk';
@@ -24,7 +23,7 @@ function parseSdkKey(key: string): PrivateKey {
 export class CreateKnowledgeTopicTool extends StructuredTool {
   name = 'create_knowledge_topic';
   description =
-    'Create a HIP-991 paid topic for validated knowledge and register it in the HCS-2 indexed Knowledge registry.';
+    'Create an HCS-2 storage topic for validated knowledge and register it in the Knowledge registry.';
   schema = z.object({
     knowledgeId: z.number().int().positive().describe('The knowledge item ID'),
     content: z.string().describe('The knowledge content (used for topic memo)'),
@@ -57,21 +56,15 @@ export class CreateKnowledgeTopicTool extends StructuredTool {
         parseSdkKey(this.privateKey),
       );
 
-      const customFee = new CustomFixedFee()
-        .setAmount(10_000_000)
-        .setFeeCollectorAccountId(AccountId.fromString(this.accountId));
-
       const memo = `HIVE Knowledge #${input.knowledgeId}: ${input.content.substring(0, 50)}`;
       const topicTx = await new TopicCreateTransaction()
         .setTopicMemo(memo)
-        .setCustomFees([customFee])
         .execute(client);
 
       const receipt = await topicTx.getReceipt(client);
       const topicId = receipt.topicId!.toString();
 
-      console.log(`[VALIDATOR] HIP-991 topic created: ${topicId}`);
-      console.log(`[VALIDATOR] Fee: 0.1 HBAR per access`);
+      console.log(`[VALIDATOR] HCS-2 knowledge topic created: ${topicId}`);
       console.log(`[VALIDATOR] ${hashscanTopicUrl(topicId, this.network)}`);
 
       if (this.registryTopicId) {

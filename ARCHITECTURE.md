@@ -26,22 +26,25 @@
         │                    │                      │
 ┌───────┴───────┐  ┌─────────┴─────────┐  ┌────────┴────────────┐
 │   PROPOSER    │  │     EXECUTOR      │  │     VALIDATOR        │
+│               │  │  (settlement bot) │  │                      │
+│ • Generates   │  │                   │  │ • Polls for items    │
+│   research    │  │ • Polls for items │  │   where validated    │
+│   questions   │  │   where executed  │  │   == false           │
+│               │  │   == false        │  │                      │
+│ • Calls       │  │                   │  │ • Calls              │
+│   propose-    │  │ • Checks pool     │  │   validateKnowledge()│
+│   Knowledge() │  │   balance ≥       │  │                      │
+│               │  │   reward          │  │ • Creates HIP-991    │
+│ • Respects    │  │                   │  │   paid topic for     │
+│   backlog     │  │ • Calls           │  │   each knowledge     │
+│   limit (3)   │  │   executeKnow-    │  │   item               │
+│               │  │   ledge() →       │  │                      │
+│               │  │   triggers HBAR   │  │ • Registers topic    │
+│               │  │   payout to all   │  │   in HCS-2 indexed   │
+│               │  │   3 roles         │  │   registry            │
 │               │  │                   │  │                      │
-│ • Generates   │  │ • Polls for items │  │ • Polls for items    │
-│   research    │  │   where executed  │  │   where validated    │
-│   questions   │  │   == false        │  │   == false           │
-│               │  │                   │  │                      │
-│ • Calls       │  │ • Checks pool     │  │ • Calls              │
-│   propose-    │  │   balance ≥       │  │   validateKnowledge()│
-│   Knowledge() │  │   reward          │  │                      │
-│               │  │                   │  │ • Creates HIP-991    │
-│ • Respects    │  │ • Calls           │  │   paid topic for     │
-│   backlog     │  │   executeKnow-    │  │   each knowledge     │
-│   limit (3)   │  │   ledge() →       │  │   item               │
-│               │  │   triggers HBAR   │  │                      │
-│               │  │   payout to all   │  │ • Registers topic    │
-│               │  │   3 roles         │  │   in HCS-2 indexed   │
-│               │  │                   │  │   registry            │
+│               │  │ • No HCS topics   │  │                      │
+│               │  │ • No research     │  │                      │
 └───────────────┘  └───────────────────┘  └──────────────────────┘
     Account:            Account:               Account:
     0.0.7984601         0.0.7984602            0.0.7984604
@@ -247,9 +250,115 @@ Executor sees item #5 is validated + unexecuted
 | Validator  | Attests quality, gates execution        | Per-knowledge topic  | Knowledge Registry     |
 | Executor   | Settlement — triggers reward payout     | None                 | None                   |
 
+### Provisioning a Sensor (Demo)
+
+```bash
+# 1. Set sensor account credentials in .env
+SENSOR_ACCOUNT_ID=0.0.XXXXXXX
+SENSOR_PRIVATE_KEY=0x...
+SENSOR_REGISTRY_TOPIC_ID=0.0.7984160
+
+# 2. Run the provisioning script
+npm run create:sensor-topic
+
+# Output:
+# [SENSOR] HIP-991 topic created: 0.0.YYYYYYY
+# [SENSOR] Fee: 0.1 HBAR per message (collector: 0.0.XXXXXXX)
+# [SENSOR] Registered in HCS-2 registry (seq: N)
+#
+# --- Add to .env ---
+# SENSOR_TOPIC_ID=0.0.YYYYYYY
+```
+
+The script creates a HIP-991 paid topic (0.1 HBAR per message, fee collector = sensor account)
+and registers it in the HCS-2 Sensor Registry for discovery by other agents.
+
 ### Open Questions
 
 - **How do sensors signal readiness?** Options: (a) submit to a shared HCS coordination topic, (b) an on-chain mapping/event, (c) validator just polls sensor topics
 - **Sensor reward split?** Currently rewards go to proposer/validator/executor. Should sensors get a cut? Would require a contract change (4-way split) or an off-chain arrangement.
 - **Sensor selection:** When multiple sensors can handle a query, who picks which one runs it? First-come-first-serve? Validator chooses? MCP routes?
 - **Capability matching:** How does a sensor know a knowledge item matches its domain? Keyword matching? LLM classification? On-chain tags?
+
+---
+
+## On-Chain Scheduling (HIP-755 / HIP-1215)
+
+The KnowledgePool contract uses the **Hedera Schedule Service system contract** (`0x16b`)
+to schedule recurring self-calls — no off-chain cron or keeper bot required.
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    KnowledgePool.sol + HederaScheduleService            │
+│                                                                         │
+│  owner calls startPulse(30)                                             │
+│       │                                                                 │
+│       ▼                                                                 │
+│  _schedulePulse(block.timestamp + 30)                                   │
+│       │                                                                 │
+│       ├──► scheduleCall(self, expiry, 2M gas, 0, pulse.selector)       │
+│       │         │                                                       │
+│       │         ▼  HSS system contract (0x16b) stores the schedule     │
+│       │                                                                 │
+│       │    ... 30 seconds pass ...                                      │
+│       │                                                                 │
+│       │    Hedera network auto-executes pulse()                         │
+│       │         │                                                       │
+│       │         ├──► emit SensorPulse(id, timestamp, trigger=true/false)│
+│       │         │                                                       │
+│       │         └──► _schedulePulse(block.timestamp + 30)  ◄── LOOP    │
+│       │                                                                 │
+│  stopPulse()  ──► pulseInterval = 0  ──► next pulse() won't reschedule │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+Key points:
+- Uses HIP-1215 `scheduleCall()` (generalized scheduled contract calls)
+- The contract pays for scheduled execution gas from its own HBAR balance
+- `trigger` boolean is pseudo-random: `keccak256(timestamp, pulseId) % 2`
+- `stopPulse()` breaks the loop by setting `pulseInterval = 0`
+
+### Event Bridge (Mirror Node → Telegram)
+
+```
+KnowledgePool              Mirror Node REST API              MCP (mcp.ts)             Telegram Bot API
+     │                            │                              │                          │
+     │  emit SensorPulse(...)     │                              │                          │
+     ├───────────────────────────►│                              │                          │
+     │                            │                              │                          │
+     │                            │◄── GET /contracts/{addr}/   │                          │
+     │                            │    results/logs?topic0=...   │                          │
+     │                            │                              │                          │
+     │                            ├─────── log entries ─────────►│                          │
+     │                            │                              │                          │
+     │                            │                              ├── POST /sendMessage ────►│
+     │                            │                              │                          │
+     │                            │                              │         ┌────────────────┤
+     │                            │                              │         │ Telegram DM to │
+     │                            │                              │         │ sensor agent   │
+     │                            │                              │         └────────────────┘
+```
+
+The MCP polls Mirror Node every 10 seconds for `SensorPulse` events and forwards
+them to a Telegram chat via the Bot API. The sensor agent (or human operator)
+receives the pulse and can act on the `trigger` boolean.
+
+### Setup Commands
+
+```bash
+# 1. Deploy the contract (funds it with 5 HBAR by default)
+npm run deploy:contract
+
+# 2. Get your Telegram chat ID (send a message to the bot first)
+npm run get:telegram-chat-id
+# Copy TELEGRAM_CHAT_ID to .env
+
+# 3. Start the pulse (30s default interval)
+npm run start:pulse
+# Or with custom interval:  cd contracts && npx hardhat run scripts/start-pulse.js --network hedera -- 60
+
+# 4. Stop the pulse
+npm run stop:pulse
+```

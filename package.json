@@ -15,7 +15,6 @@
     "dev:validator": "tsx src/agents/validator/index.ts",
     "setup:hedera": "node scripts/setup-hedera.js",
     "create:hcs-topic": "node scripts/create-hcs-topic.js",
-    "create:executor-registry": "node scripts/create-executor-registry.js",
     "create:agent-wallets": "node scripts/create-agent-wallets.js",
     "deploy:contract": "cd contracts && npx hardhat run scripts/deploy.js --network hedera",
     "fund:pool": "node scripts/fund-pool.js",
@@ -23,10 +22,15 @@
     "status:chain": "node scripts/check-chain-state.js",
     "run:all-agents": "tsx scripts/run-all-agents.ts",
     "mcp": "tsx scripts/mcp.ts",
-    "sensors": "tsx src/agents/executor/index.ts",
+    "create:sensor-topic": "tsx scripts/create-sensor-topic.ts",
+    "create:sensor-inbound-topic": "tsx scripts/create-sensor-inbound-topic.ts",
     "start:agents": "tsx scripts/start-agents.ts",
     "start:dashboard": "cd dashboard && npm run dev",
-    "create:knowledge-registry": "node scripts/create-knowledge-registry.js"
+    "create:knowledge-registry": "node scripts/create-knowledge-registry.js",
+    "create:knowledge-inbound-topic": "tsx scripts/create-knowledge-inbound-topic.ts",
+    "start:pulse": "cd contracts && npx hardhat run scripts/start-pulse.js --network hedera",
+    "stop:pulse": "cd contracts && PULSE_ACTION=stop npx hardhat run scripts/start-pulse.js --network hedera",
+    "get:telegram-chat-id": "tsx scripts/get-telegram-chat-id.ts"
   },
   "dependencies": {
     "@hashgraph/sdk": "^2.80.0",

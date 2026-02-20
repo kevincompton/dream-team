@@ -5,13 +5,16 @@
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
-    "deploy": "hardhat run scripts/deploy.js --network hedera"
+    "deploy": "hardhat run scripts/deploy.js --network hedera",
+    "start-pulse": "hardhat run scripts/start-pulse.js --network hedera",
+    "stop-pulse": "hardhat run scripts/start-pulse.js --network hedera -- stop"
   },
   "devDependencies": {
-    "hardhat": "^2.22.0",
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0"
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.0"
   },
   "dependencies": {
+    "@hashgraph/smart-contracts": "github:hashgraph/hedera-smart-contracts",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.0"
   }

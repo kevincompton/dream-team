@@ -11,6 +11,16 @@ export const KNOWLEDGE_POOL_ABI = [
   'event KnowledgeProposed(uint256 indexed id, address indexed proposer, string content)',
   'event KnowledgeValidated(uint256 indexed id, address indexed validator)',
   'event KnowledgeExecuted(uint256 indexed id, address indexed executor)',
+  'function startPulse(uint256 intervalSeconds) external',
+  'function stopPulse() external',
+  'function pulse() external',
+  'function nextPulseId() public view returns (uint256)',
+  'function nextCommandId() public view returns (uint256)',
+  'function pulseInterval() public view returns (uint256)',
+  'function servoOn() public view returns (bool)',
+  'event DeviceCommand(uint256 indexed commandId, string command)',
+  'event PulseScheduled(address scheduleAddress, uint256 pulseId, uint256 time)',
+  'event PulseStopped(uint256 lastPulseId)',
 ];
 
 export interface KnowledgeItem {

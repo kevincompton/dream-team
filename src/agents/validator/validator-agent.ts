@@ -1,6 +1,6 @@
 import { config } from 'dotenv';
 import { ethers } from 'ethers';
-import { Client } from '@hashgraph/sdk';
+import { Client, TopicMessageQuery, TopicId, Timestamp } from '@hashgraph/sdk';
 import { ChatOpenAI } from '@langchain/openai';
 import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
@@ -112,22 +112,27 @@ export class ValidatorAgent {
       apiKey: this.env.OPENAI_API_KEY!,
     });
 
+    const sensorInboundTopicId = this.env.SENSOR_INBOUND_TOPIC_ID;
+
     const prompt = ChatPromptTemplate.fromMessages([
       [
         'system',
         `You are a Knowledge Validator agent for the HIVE Protocol on Hedera.
 
-Your job is to validate knowledge items and create HIP-991 paid topics for validated knowledge.
+Your job is to validate knowledge items, create HCS-2 topics for validated knowledge, and coordinate with sensor agents.
 
 When given a knowledge item to validate:
 1. Use validate_knowledge to attest the item on-chain
-2. If validation succeeds, use create_knowledge_topic to create a HIP-991 paid topic and register it in the HCS-2 registry
+2. If validation succeeds, use create_knowledge_topic to create an HCS-2 topic and register it in the Knowledge registry
+
+When you receive an inbound message on the knowledge topic, use submit_topic_message to send a request to the sensor agent's inbound topic (${sensorInboundTopicId || 'not configured'}) asking for a summary of today's sensor data readings.
 
 Current Configuration:
 - Network: ${network}
 - Contract: ${this.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS}
 - Account: ${accountId || 'unknown'}
-- Flow order: ${this.flowOrderResolved || 'auto'}`,
+- Flow order: ${this.flowOrderResolved || 'auto'}
+- Sensor inbound topic: ${sensorInboundTopicId || 'not configured'}`,
       ],
       ['user', '{input}'],
       ['placeholder', '{agent_scratchpad}'],
@@ -208,6 +213,32 @@ Current Configuration:
     console.log(
       `[VALIDATOR] Flow order mode: ${this.flowOrderResolved || 'auto'}`,
     );
+
+    if (this.env.KNOWLEDGE_INBOUND_TOPIC_ID && this.client) {
+      const inboundTopicId = TopicId.fromString(this.env.KNOWLEDGE_INBOUND_TOPIC_ID);
+      console.log(`[VALIDATOR] Subscribing to inbound topic ${this.env.KNOWLEDGE_INBOUND_TOPIC_ID}`);
+
+      new TopicMessageQuery()
+        .setTopicId(inboundTopicId)
+        .setStartTime(Timestamp.fromDate(new Date()))
+        .subscribe(
+          this.client,
+          (error) => {
+            console.error('[VALIDATOR] Inbound subscription error:', error);
+          },
+          (message) => {
+            const decoded = Buffer.from(message.contents).toString('utf8');
+            const seq = message.sequenceNumber.toString();
+            console.log(`[VALIDATOR] Inbound message #${seq}: "${decoded.slice(0, 100)}"`);
+
+            this.agentExecutor!.invoke({
+              input: `You received an inbound message on the knowledge topic: "${decoded}". Use submit_topic_message to send a message to topic ${this.env.SENSOR_INBOUND_TOPIC_ID} requesting a summary of today's sensor data readings.`,
+            })
+              .then((result) => console.log(`[VALIDATOR] Agent response: ${result.output}`))
+              .catch((err) => console.warn('[VALIDATOR] Agent invocation failed:', err instanceof Error ? err.message : err));
+          },
+        );
+    }
 
     const intervalSeconds = parseInt(
       this.env.VALIDATOR_POLL_SECONDS || '60',

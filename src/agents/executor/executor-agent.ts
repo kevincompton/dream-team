@@ -20,16 +20,11 @@ import {
 import { createHederaEvmProvider } from '../../shared/hedera-rpc.js';
 import {
   hashscanContractUrl,
-  delay,
   isRpcRateLimited,
   ZERO_ADDRESS,
   HBAR_DECIMALS,
 } from '../../common/utils.js';
 import { ExecuteKnowledgeTool } from './tools/execute-knowledge.js';
-import {
-  EnsureExecutorTopicTool,
-  SubmitToTopicTool,
-} from './tools/ensure-executor-topic.js';
 import { GetKnowledgeTool } from '../../tools/get-knowledge.js';
 import { KnowledgeCountTool } from '../../tools/knowledge-count.js';
 import { PoolBalanceTool } from '../../tools/pool-balance.js';
@@ -45,8 +40,6 @@ export class ExecutorAgent {
   private pendingExecutions = new Set<number>();
   private flowOrder: string;
   private flowOrderResolved: string | null;
-  private topicId: string | null = null;
-
   private agentExecutor?: AgentExecutor;
   private hederaToolkit?: HederaLangchainToolkit;
   private client?: Client;
@@ -153,13 +146,6 @@ Current Configuration:
     const knowledgeCountTool = new KnowledgeCountTool(this.contract);
     const poolBalanceTool = new PoolBalanceTool(this.contract);
 
-    const ensureTopicTool = new EnsureExecutorTopicTool({
-      accountId: accountId || '',
-      privateKey,
-      network,
-      registryTopicId: this.env.EXECUTOR_REGISTRY_TOPIC_ID,
-    });
-
     const hederaTools = this.hederaToolkit.getTools();
 
     const allTools = [
@@ -168,7 +154,6 @@ Current Configuration:
       getKnowledgeTool,
       knowledgeCountTool,
       poolBalanceTool,
-      ensureTopicTool,
     ];
 
     const agent = await createToolCallingAgent({
@@ -183,25 +168,6 @@ Current Configuration:
       verbose: false,
       maxIterations: 10,
     });
-
-    // Create HIP-991 topic on startup
-    if (accountId) {
-      try {
-        const topicResult = await ensureTopicTool._call({
-          memo: `HIVE Executor sensor - ${accountId}`,
-        });
-        const parsed = JSON.parse(topicResult);
-        if (parsed.success) {
-          this.topicId = parsed.topicId;
-          console.log(`[EXECUTOR] HIP-991 topic assigned: ${this.topicId}`);
-        }
-      } catch (err) {
-        console.warn(
-          '[EXECUTOR] Could not init HIP-991 topic:',
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
 
     console.log(
       `[EXECUTOR] Account: ${accountId || '(using key only)'}`,

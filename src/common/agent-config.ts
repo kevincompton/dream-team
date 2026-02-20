@@ -18,7 +18,6 @@ export interface EnvironmentConfig {
   EXECUTOR_PRIVATE_KEY?: string;
   EXECUTOR_POLL_SECONDS?: string;
   EXECUTOR_MAX_ITEMS_PER_CYCLE?: string;
-  EXECUTOR_REGISTRY_TOPIC_ID?: string;
 
   VALIDATOR_ACCOUNT_ID?: string;
   VALIDATOR_PRIVATE_KEY?: string;
@@ -26,7 +25,21 @@ export interface EnvironmentConfig {
   VALIDATOR_MAX_ITEMS_PER_CYCLE?: string;
   KNOWLEDGE_REGISTRY_TOPIC_ID?: string;
 
+  SENSOR_ACCOUNT_ID?: string;
+  SENSOR_PRIVATE_KEY?: string;
+  SENSOR_TOPIC_ID?: string;
+  SENSOR_INBOUND_TOPIC_ID?: string;
+  SENSOR_REGISTRY_TOPIC_ID?: string;
+
+  KNOWLEDGE_INBOUND_TOPIC_ID?: string;
+
   KNOWLEDGE_FLOW_ORDER?: string;
 
   MCP_PORT?: string;
+
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_CHAT_ID?: string;
+
+  PULSE_INTERVAL_SECONDS?: string;
+  DEPLOY_FUND_HBAR?: string;
 }
