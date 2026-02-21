@@ -91,10 +91,13 @@ Optional but useful:
 
 ```dotenv
 NEXT_PUBLIC_HCS_TOPIC_ID=0.0.xxxxxxx
+NEXT_PUBLIC_HIP991_TOPICS=[{"knowledgeId":12,"topicId":"0.0.123456"},{"knowledgeId":13,"topicId":"0.0.123457"}]
 NEXT_PUBLIC_DASHBOARD_DEBUG=true
 NEXT_PUBLIC_DASHBOARD_LOG_LEVEL=warn
 # KNOWLEDGE_FLOW_ORDER=auto|validate-first|execute-first
 ```
+
+`NEXT_PUBLIC_HIP991_TOPICS` enables the LIVE HCS Feed to aggregate multiple HIP-991 topics.
 
 ## 4) Deploy and Fund
 

@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { createHederaEvmProvider } from "../shared/hederaRpc.js";
+import { chat as llmChat } from "../agents/common/llm.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,6 +35,10 @@ const PROPOSER_ABI = [
 const KNOWLEDGE_ABI = [
   "function getKnowledge(uint256 id) public view returns (address, string memory, uint256, bool, bool, address, address)",
 ];
+const DEDUPE_LOOKBACK = Math.max(1, Number(process.env.MCP_DEDUPE_LOOKBACK || 200));
+const DEDUPE_ENABLED = String(process.env.MCP_DEDUPE_ENABLED || "true").toLowerCase() !== "false";
+const MCP_BLOCKING_TIMEOUT_MS = Math.max(30_000, Number(process.env.MCP_BLOCKING_TIMEOUT_MS || 180_000));
+const HIVE_FORCE_ENGLISH = String(process.env.HIVE_FORCE_ENGLISH || "true").toLowerCase() !== "false";
 let lastKnownStatus = {
   connected: false,
   contractAddress: process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS || null,
@@ -43,6 +48,8 @@ let lastKnownStatus = {
   stale: true,
   updatedAt: new Date().toISOString(),
 };
+const dedupeCache = new Map();
+const answerCacheByKnowledgeId = new Map();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -166,6 +173,129 @@ function shortAddress(value) {
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
 
+function normalizeQuestion(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u2019']/g, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isQuestionEcho(question, content) {
+  return normalizeQuestion(question) === normalizeQuestion(content);
+}
+
+async function ensureEnglishAnswer({ question, answer }) {
+  const cleanAnswer = String(answer || "").trim();
+  if (!cleanAnswer || !HIVE_FORCE_ENGLISH) return cleanAnswer;
+
+  try {
+    const translated = await llmChat([
+      {
+        role: "system",
+        content:
+          "You are a translation and editing assistant for HIVE Protocol. Return only English output. Preserve factual meaning and numbers exactly. Keep it concise. No preamble.",
+      },
+      {
+        role: "user",
+        content:
+          `Question context: ${String(question || "").trim()}\n\nRewrite the following answer in English only:\n\n${cleanAnswer}`,
+      },
+    ]);
+
+    const english = String(translated || "").trim();
+    if (english) return english;
+  } catch (err) {
+    console.log(`[MCP] ⚠️ Could not enforce English output: ${err?.message || err}`);
+  }
+
+  return cleanAnswer;
+}
+
+async function ensureTextualAnswer({ question, content, knowledgeId }) {
+  const cleanContent = String(content || "").trim();
+
+  if (cleanContent && !isQuestionEcho(question, cleanContent) && cleanContent.length > 24) {
+    return ensureEnglishAnswer({ question, answer: cleanContent });
+  }
+
+  if (knowledgeId && answerCacheByKnowledgeId.has(knowledgeId)) {
+    return ensureEnglishAnswer({
+      question,
+      answer: answerCacheByKnowledgeId.get(knowledgeId),
+    });
+  }
+
+  try {
+    const generated = await llmChat([
+      {
+        role: "system",
+        content:
+          "You are a research summarizer for HIVE Protocol. Return only a concise factual answer in English (4-7 bullet points max when applicable). No preamble.",
+      },
+      {
+        role: "user",
+        content: `Question: ${String(question || "").trim()}\n\nProvide a direct answer in English that can be reused by other agents.`,
+      },
+    ]);
+
+    const answer = await ensureEnglishAnswer({
+      question,
+      answer: generated,
+    });
+    if (answer) {
+      if (knowledgeId) answerCacheByKnowledgeId.set(knowledgeId, answer);
+      return answer;
+    }
+  } catch (err) {
+    console.log(`[MCP] ⚠️ Could not generate textual answer for #${knowledgeId ?? "n/a"}: ${err?.message || err}`);
+  }
+
+  const fallback = cleanContent || "Knowledge processed successfully. Reuse confirmed on-chain.";
+  if (knowledgeId) answerCacheByKnowledgeId.set(knowledgeId, fallback);
+  return fallback;
+}
+
+async function findReusableKnowledge(question) {
+  if (!DEDUPE_ENABLED) return null;
+
+  const normalizedQuestion = normalizeQuestion(question);
+  if (!normalizedQuestion) return null;
+
+  const cached = dedupeCache.get(normalizedQuestion);
+  if (cached) return cached;
+
+  const provider = createHederaEvmProvider();
+  const contract = new ethers.Contract(process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS, STATUS_ABI, provider);
+  const total = Number(await contract.knowledgeCount());
+  if (total <= 0) return null;
+
+  const fromId = Math.max(1, total - DEDUPE_LOOKBACK + 1);
+  for (let id = total; id >= fromId; id -= 1) {
+    const [, content, , , executed] = await contract.getKnowledge(id);
+    if (!executed) continue;
+
+    if (normalizeQuestion(content) === normalizedQuestion) {
+      const textual = await ensureTextualAnswer({
+        question,
+        content,
+        knowledgeId: id,
+      });
+      const reusable = {
+        knowledgeId: id,
+        content: textual,
+        reused: true,
+      };
+      dedupeCache.set(normalizedQuestion, reusable);
+      return reusable;
+    }
+  }
+
+  return null;
+}
+
 async function getChainStatus() {
   if (!process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS) {
     return {
@@ -253,6 +383,14 @@ async function spawnResearchRequest(question) {
   console.log(`[MCP] ✅ Research request submitted. Knowledge ID: ${knowledgeId ?? "unknown"}. TX: ${receipt.hash}`);
   console.log(`[MCP] 🔗 https://hashscan.io/testnet/tx/${receipt.hash}`);
 
+  if (knowledgeId) {
+    dedupeCache.set(normalizeQuestion(question), {
+      knowledgeId,
+      content: "",
+      reused: false,
+    });
+  }
+
   return { txHash: receipt.hash, knowledgeId };
 }
 
@@ -301,6 +439,21 @@ const server = http.createServer(async (req, res) => {
       try {
         const { question, userId } = JSON.parse(body || "{}");
         console.log(`[MCP] 📨 Research Request from ${userId || "unknown"}: ${question}`);
+
+        const reusable = await findReusableKnowledge(question);
+        if (reusable) {
+          console.log(`[MCP] ♻️ Reused existing knowledge #${reusable.knowledgeId} for request endpoint`);
+          res.writeHead(200);
+          res.end(JSON.stringify({
+            status: "completed",
+            reused: true,
+            knowledgeId: reusable.knowledgeId,
+            content: `♻️ Reused existing knowledge #${reusable.knowledgeId}.\n\n${reusable.content}`,
+            message: "Existing knowledge reused. No new proposal submitted.",
+          }));
+          return;
+        }
+
         const { txHash } = await spawnResearchRequest(question);
         res.writeHead(200);
         res.end(JSON.stringify({ status: "accepted", message: `Research request queued: "${question}"`, txHash }));
@@ -320,6 +473,20 @@ const server = http.createServer(async (req, res) => {
         if (!question) throw new Error("question is required");
         console.log(`[MCP] 🔬 Blocking research from ${userId || "openclaw"}: ${question}`);
 
+        const reusable = await findReusableKnowledge(question);
+        if (reusable) {
+          console.log(`[MCP] ♻️ Reused existing knowledge #${reusable.knowledgeId} for blocking request`);
+          res.writeHead(200);
+          res.end(JSON.stringify({
+            status: "completed",
+            reused: true,
+            knowledgeId: reusable.knowledgeId,
+            content: `♻️ Reused existing knowledge #${reusable.knowledgeId}.\n\n${reusable.content}`,
+            txHash: null,
+          }));
+          return;
+        }
+
         const { txHash, knowledgeId } = await spawnResearchRequest(question);
 
         if (!knowledgeId) {
@@ -328,14 +495,26 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const result = await waitForKnowledgeResult(knowledgeId);
+        const result = await waitForKnowledgeResult(knowledgeId, MCP_BLOCKING_TIMEOUT_MS);
 
         if (result) {
+          const textual = await ensureTextualAnswer({
+            question,
+            content: result.content,
+            knowledgeId,
+          });
+
+          dedupeCache.set(normalizeQuestion(question), {
+            knowledgeId,
+            content: textual,
+            reused: true,
+          });
+
           res.writeHead(200);
           res.end(JSON.stringify({
             status: "completed",
             knowledgeId,
-            content: result.content,
+            content: textual,
             txHash,
           }));
         } else {

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import type { HcsMessage } from "@/types/dashboard";
 import { Panel } from "@/components/ui/panel";
-import { hashscanSearchUrl, truncateAddress } from "@/lib/utils";
+import { hashscanSearchUrl, hashscanTopicUrl, truncateAddress } from "@/lib/utils";
 
 const styles = {
   success: "text-hive-primary",
@@ -45,15 +45,31 @@ export function HcsFeedPanel({ messages }: HcsFeedPanelProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                [{new Date(message.timestamp).toLocaleTimeString()}] [{message.agent}] <span title={message.action}>{message.action}</span>{" "}
-                <a
-                  href={hashscanSearchUrl(message.hash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline decoration-dotted"
-                >
-                  {truncateAddress(message.hash, 10, 6)}
-                </a>
+                <div>
+                  [{new Date(message.timestamp).toLocaleTimeString()}] [{message.agent}] <span title={message.action}>{message.action}</span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-3 text-[11px] opacity-85">
+                  {message.topicId && (
+                    <a
+                      href={hashscanTopicUrl(message.topicId)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline decoration-dotted"
+                      title={`Open topic ${message.topicId} in HashScan`}
+                    >
+                      topic {message.topicId}
+                    </a>
+                  )}
+                  <a
+                    href={hashscanSearchUrl(message.hash)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline decoration-dotted"
+                    title="Open hash in HashScan"
+                  >
+                    {truncateAddress(message.hash, 10, 6)}
+                  </a>
+                </div>
               </motion.div>
             ))}
         </div>

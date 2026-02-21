@@ -1,12 +1,24 @@
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs/promises";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
-import { Client, TopicCreateTransaction, CustomFixedFee, AccountId, PrivateKey, AccountBalanceQuery, Hbar } from "@hashgraph/sdk";
+import {
+  Client,
+  TopicCreateTransaction,
+  TopicMessageSubmitTransaction,
+  TopicId,
+  CustomFixedFee,
+  AccountId,
+  PrivateKey,
+  AccountBalanceQuery,
+  Hbar,
+} from "@hashgraph/sdk";
 import { createHederaEvmProvider } from "../../shared/hederaRpc.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
+const ENV_PATH = path.join(__dirname, "..", "..", ".env");
 
 const CONTRACT_ABI = [
   "function validateKnowledge(uint256 id) public",
@@ -27,6 +39,55 @@ function hashscanTxUrl(value) {
 
 function hashscanContractUrl(value) {
   return `${HASHSCAN_BASE}/contract/${encodeURIComponent(value)}`;
+}
+
+function hashscanTopicUrl(value) {
+  return `${HASHSCAN_BASE}/topic/${encodeURIComponent(value)}`;
+}
+
+async function upsertHip991TopicMapping(knowledgeId, topicId) {
+  try {
+    const envText = await fs.readFile(ENV_PATH, "utf8");
+    const lineRegex = /^HIP991_TOPICS=(.*)$/m;
+    const match = envText.match(lineRegex);
+    const currentRaw = match?.[1]?.trim() || "[]";
+
+    let current = [];
+    try {
+      current = JSON.parse(currentRaw);
+      if (!Array.isArray(current)) current = [];
+    } catch {
+      current = [];
+    }
+
+    const next = current.filter((entry) => Number(entry?.knowledgeId) !== Number(knowledgeId));
+    next.push({ knowledgeId: Number(knowledgeId), topicId: String(topicId) });
+    next.sort((a, b) => Number(a.knowledgeId) - Number(b.knowledgeId));
+
+    const replacement = `HIP991_TOPICS=${JSON.stringify(next)}`;
+    const updated = match
+      ? envText.replace(lineRegex, replacement)
+      : `${envText.trimEnd()}\n${replacement}\n`;
+
+    await fs.writeFile(ENV_PATH, updated, "utf8");
+    process.env.HIP991_TOPICS = JSON.stringify(next);
+    console.log(`[VALIDATOR] 🗂️ Updated HIP991_TOPICS with knowledge #${knowledgeId} -> ${topicId}`);
+  } catch (error) {
+    console.log(`[VALIDATOR] ⚠️ Could not update HIP991_TOPICS in .env: ${error?.message || error}`);
+  }
+}
+
+async function submitSeedMessage(client, topicId, payload, label) {
+  const maxTopicMessageFeeHbar = Number(process.env.HIP991_MAX_TOPIC_MESSAGE_FEE_HBAR || "1");
+  const tx = await new TopicMessageSubmitTransaction()
+    .setTopicId(TopicId.fromString(topicId))
+    .setMessage(JSON.stringify(payload))
+    .setMaxTransactionFee(new Hbar(maxTopicMessageFeeHbar))
+    .execute(client);
+
+  const receipt = await tx.getReceipt(client);
+  console.log(`[VALIDATOR] 📨 ${label} message status: ${receipt.status.toString()}`);
+  console.log(`[VALIDATOR] 🔗 ${label} message TX: ${hashscanTxUrl(tx.transactionId.toString())}`);
 }
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -59,7 +120,7 @@ function getValidatorSdkKey() {
   }
 }
 
-async function createHIP991Topic(knowledgeId, content) {
+async function createHIP991Topic(knowledgeId, content, settledTxHash) {
   const client = Client.forTestnet();
   const validatorAccountId = AccountId.fromString(process.env.VALIDATOR_ACCOUNT_ID);
   client.setOperator(validatorAccountId, getValidatorSdkKey());
@@ -84,10 +145,41 @@ async function createHIP991Topic(knowledgeId, content) {
 
   const receipt = await topicTx.getReceipt(client);
   const topicId = receipt.topicId.toString();
+  await upsertHip991TopicMapping(knowledgeId, topicId);
+
+  const seedPayload = {
+    type: "knowledge.created",
+    source: "validator",
+    knowledgeId,
+    topicId,
+    contentPreview: String(content).slice(0, 280),
+    settledTxHash: settledTxHash || null,
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await submitSeedMessage(client, topicId, seedPayload, "Topic seed");
+
+    const globalTopicId = (process.env.NEXT_PUBLIC_HCS_TOPIC_ID || "").trim();
+    if (globalTopicId && globalTopicId !== topicId) {
+      await submitSeedMessage(
+        client,
+        globalTopicId,
+        {
+          ...seedPayload,
+          type: "knowledge.topic.created",
+          source: "validator-global-feed",
+        },
+        "Global feed",
+      );
+    }
+  } catch (error) {
+    console.log(`[VALIDATOR] ⚠️ Could not publish seed message to topic ${topicId}: ${error?.message || error}`);
+  }
 
   console.log(`[VALIDATOR] 🏷️  HIP-991 Topic created: ${topicId}`);
   console.log(`[VALIDATOR] 💰 Fee: 0.1 HBAR per access`);
-  console.log(`[VALIDATOR] 🔗 https://hashscan.io/testnet/topic/${topicId}`);
+  console.log(`[VALIDATOR] 🔗 ${hashscanTopicUrl(topicId)}`);
 
   return topicId;
 }
@@ -160,7 +252,7 @@ class ValidatorAgent {
       console.log(`[VALIDATOR] 🔗 HashScan TX: ${hashscanTxUrl(tx.hash)}`);
 
       if (process.env.VALIDATOR_ACCOUNT_ID) {
-        const topicId = await createHIP991Topic(id, item.content);
+        const topicId = await createHIP991Topic(id, item.content, tx.hash);
         console.log(`[VALIDATOR] ✅ #${id} fully settled with HIP-991 topic: ${topicId}`);
       } else {
         console.log(`[VALIDATOR] ⚠️ #${id} VALIDATOR_ACCOUNT_ID missing, skipping HIP-991 topic creation`);

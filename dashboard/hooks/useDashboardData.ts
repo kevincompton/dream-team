@@ -186,6 +186,24 @@ function latestRoleActionAt(
   return Math.max(...relatedRequests.map((request) => request.createdAt));
 }
 
+function buildEconomyFlow24h(requests: DashboardSnapshot["requests"]) {
+  const now = Date.now();
+  const bucketMs = 2 * 60 * 60 * 1000;
+
+  return Array.from({ length: 12 }).map((_, index) => {
+    const start = now - (12 - index) * bucketMs;
+    const end = start + bucketMs;
+    const inflow = requests
+      .filter((request) => request.createdAt >= start && request.createdAt < end)
+      .reduce((sum, request) => sum + request.pool, 0);
+
+    return {
+      hour: `${index * 2}h`,
+      inflow: Number(inflow.toFixed(6)),
+    };
+  });
+}
+
 export function useDashboardData() {
   const useMock = process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true";
   const topicId = process.env.NEXT_PUBLIC_HCS_TOPIC_ID;
@@ -253,6 +271,12 @@ export function useDashboardData() {
     const executing = hedera.requests.filter((request) => request.status === "EXECUTING").length;
     const settled = hedera.requests.filter((request) => request.status === "SETTLED").length;
     const proposed = hedera.requests.filter((request) => request.status === "PROPOSED").length;
+    const distributedHbar = hedera.requests
+      .filter((request) => request.status === "SETTLED")
+      .reduce((sum, request) => sum + request.pool, 0);
+    const activeLockedHbar = hedera.requests
+      .filter((request) => request.status !== "SETTLED")
+      .reduce((sum, request) => sum + request.pool, 0);
 
     const nextSnapshot: DashboardSnapshot = {
       ...EMPTY_LIVE_SNAPSHOT,
@@ -263,12 +287,9 @@ export function useDashboardData() {
       economy: {
         circulating: hedera.poolBalance,
         inPools: hedera.poolBalance,
-        distributed: settled * hedera.rewardPerTask,
-        staked: 0,
-        flow24h: Array.from({ length: 12 }).map((_, index) => ({
-          hour: `${index * 2}h`,
-          inflow: Number((hedera.txCount / 2 + index % 3).toFixed(2)),
-        })),
+        distributed: Number(distributedHbar.toFixed(6)),
+        staked: Number(activeLockedHbar.toFixed(6)),
+        flow24h: buildEconomyFlow24h(hedera.requests),
       },
       graph: {
         nodes: hedera.requests.slice(0, 20).map((request) => ({

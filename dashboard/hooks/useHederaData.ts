@@ -52,9 +52,15 @@ interface HederaPollResult {
   updatedAt: number;
 }
 
+interface Hip991TopicEntry {
+  knowledgeId?: number;
+  topicId?: string;
+}
+
 const HBAR_DECIMALS = 8;
 const CONTRACT_ADDRESS =
   process.env.NEXT_PUBLIC_KNOWLEDGE_POOL_CONTRACT_ADDRESS ?? process.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS;
+const GLOBAL_TOPIC_ID = process.env.NEXT_PUBLIC_HCS_TOPIC_ID;
 
 const CONTRACT_ABI = [
   "function knowledgeCount() public view returns (uint256)",
@@ -62,6 +68,32 @@ const CONTRACT_ABI = [
   "function poolBalance() public view returns (uint256)",
   "function totalRewardPerTask() public view returns (uint256)",
 ];
+
+function isTopicId(value?: string) {
+  return /^0\.0\.\d+$/.test((value ?? "").trim());
+}
+
+function parseHip991TopicMap() {
+  const raw = process.env.NEXT_PUBLIC_HIP991_TOPICS;
+  if (!raw) return new Map<number, string>();
+
+  try {
+    const parsed = JSON.parse(raw) as Hip991TopicEntry[];
+    const map = new Map<number, string>();
+    for (const entry of parsed) {
+      const id = Number(entry?.knowledgeId);
+      const topic = String(entry?.topicId ?? "").trim();
+      if (Number.isFinite(id) && id > 0 && isTopicId(topic)) {
+        map.set(id, topic);
+      }
+    }
+    return map;
+  } catch {
+    return new Map<number, string>();
+  }
+}
+
+const HIP991_TOPIC_MAP = parseHip991TopicMap();
 
 function isZeroAddress(value?: string) {
   return !value || /^0x0{40}$/i.test(value);
@@ -71,6 +103,27 @@ function toKnowledgeStatus(validated: boolean, executed: boolean): KnowledgeRequ
   if (validated && executed) return "SETTLED";
   if (validated && !executed) return "EXECUTING";
   return "PROPOSED";
+}
+
+function deriveFeedFromRequests(requests: KnowledgeRequest[]): HcsMessage[] {
+  return requests.slice(0, 20).map((request) => {
+    const type: HcsMessage["type"] =
+      request.status === "SETTLED"
+        ? "success"
+        : request.status === "EXECUTING"
+          ? "executor"
+          : "request";
+
+    return {
+      id: `evm-${request.id}-${request.createdAt}`,
+      timestamp: request.createdAt,
+      agent: "EVM",
+      action: `[EVM] Knowledge #${request.id} ${request.status}`,
+      hash: randomHash(`evm${request.id}`),
+      type,
+      topicId: isTopicId(request.topicId) ? request.topicId : undefined,
+    };
+  });
 }
 
 async function fetchContractRequests(contractAddress: string): Promise<{
@@ -97,13 +150,15 @@ async function fetchContractRequests(contractAddress: string): Promise<{
 
   for (let id = knowledgeCount; id >= fromId; id -= 1) {
     const [proposer, content, timestamp, validated, executed, validator, executor] = await contract.getKnowledge(id);
+    const mappedTopic = HIP991_TOPIC_MAP.get(id);
+    const resolvedTopic = mappedTopic && isTopicId(mappedTopic) ? mappedTopic : (GLOBAL_TOPIC_ID || "N/A");
     requests.push({
       id,
       question: content,
       pool: rewardPerTask,
       status: toKnowledgeStatus(validated, executed),
       createdAt: Number(timestamp) * 1000,
-      topicId: process.env.NEXT_PUBLIC_HCS_TOPIC_ID || "N/A",
+      topicId: resolvedTopic,
       proposer,
       validator: isZeroAddress(validator) ? undefined : validator,
       executor: isZeroAddress(executor) ? undefined : executor,
@@ -130,7 +185,7 @@ function decodeBase64(value: string) {
   }
 }
 
-function formatHcsMessages(messages: MirrorTopicMessage[]): HcsMessage[] {
+function formatHcsMessages(messages: MirrorTopicMessage[], topicId?: string): HcsMessage[] {
   return messages.map((message, index) => {
     const text = decodeBase64(message.message);
     const type = text.toLowerCase().includes("attest")
@@ -145,11 +200,45 @@ function formatHcsMessages(messages: MirrorTopicMessage[]): HcsMessage[] {
       id: `${message.consensus_timestamp}-${index}`,
       timestamp: Number(message.consensus_timestamp.split(".")[0]) * 1000,
       agent: message.payer_account_id ?? "HCS",
-      action: text.slice(0, 120),
+      action: `[HCS] ${text.slice(0, 120)}`,
       hash: message.running_hash || randomHash("hcs"),
       type,
+      topicId: isTopicId(topicId) ? topicId : undefined,
     };
   });
+}
+
+async function fetchTopicFeed(topicIds: string[]) {
+  const feed: HcsMessage[] = [];
+
+  for (const currentTopicId of topicIds) {
+    try {
+      const response = await fetch(
+        `https://testnet.mirrornode.hedera.com/api/v1/topics/${currentTopicId}/messages?limit=15&order=desc`,
+      );
+
+      if (!response.ok) {
+        dashboardWarn("HEDERA", "Topic messages API failed", {
+          topicId: currentTopicId,
+          status: response.status,
+        });
+        continue;
+      }
+
+      const topicJson = (await response.json()) as { messages?: MirrorTopicMessage[] };
+      const currentFeed = formatHcsMessages(topicJson.messages ?? [], currentTopicId);
+      feed.push(...currentFeed);
+    } catch (error) {
+      dashboardWarn("HEDERA", "Topic messages fetch error", {
+        topicId: currentTopicId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return feed
+    .sort((a, b) => b.timestamp - a.timestamp)
+    .slice(0, 50);
 }
 
 function mapMcpItemsToRequests(items: McpRecentItem[], rewardPerTask: number): KnowledgeRequest[] {
@@ -162,7 +251,7 @@ function mapMcpItemsToRequests(items: McpRecentItem[], rewardPerTask: number): K
       pool: rewardPerTask,
       status: toKnowledgeStatus(item.validated, item.executed),
       createdAt: Number(item.timestamp) * 1000,
-      topicId: process.env.NEXT_PUBLIC_HCS_TOPIC_ID || "N/A",
+      topicId: HIP991_TOPIC_MAP.get(item.id) || GLOBAL_TOPIC_ID || "N/A",
       proposer: item.proposer,
       validator: item.validator,
       executor: item.executor,
@@ -265,14 +354,6 @@ export function useHederaData({ enabled, topicId, accountIds = [] }: HederaDataO
           fetch("https://testnet.mirrornode.hedera.com/api/v1/transactions?limit=25&order=desc"),
         ];
 
-        if (topicId) {
-          requests.push(
-            fetch(
-              `https://testnet.mirrornode.hedera.com/api/v1/topics/${topicId}/messages?limit=25&order=desc`,
-            ),
-          );
-        }
-
         for (const accountId of accountIds) {
           requests.push(fetch(`https://testnet.mirrornode.hedera.com/api/v1/accounts/${accountId}`));
         }
@@ -289,20 +370,8 @@ export function useHederaData({ enabled, topicId, accountIds = [] }: HederaDataO
         next.txCount = transactions.length;
         next.lastBlock = lastBlockRef.current + 1;
 
-        if (topicId && responses[1]) {
-          if (responses[1].ok) {
-            const topicJson = (await responses[1].json()) as { messages?: MirrorTopicMessage[] };
-            next.hcsFeed = formatHcsMessages((topicJson.messages ?? []).slice(0, 25)).slice(0, 50);
-          } else {
-            dashboardWarn("HEDERA", "Topic messages API failed", {
-              topicId,
-              status: responses[1].status,
-            });
-          }
-        }
-
         if (accountIds.length > 0) {
-          const accountOffset = topicId ? 2 : 1;
+          const accountOffset = 1;
           for (let i = 0; i < accountIds.length; i += 1) {
             const response = responses[accountOffset + i];
             if (!response) continue;
@@ -340,6 +409,19 @@ export function useHederaData({ enabled, topicId, accountIds = [] }: HederaDataO
         }
         if (mcpStatus.recentItems.length > 0 && next.requests.length === 0) {
           next.requests = mapMcpItemsToRequests(mcpStatus.recentItems, next.rewardPerTask);
+        }
+
+        const topicIds = Array.from(new Set([
+          ...(isTopicId(topicId) ? [topicId] : []),
+          ...next.requests.map((request) => request.topicId).filter((value) => isTopicId(value)),
+        ]));
+
+        if (topicIds.length > 0) {
+          next.hcsFeed = await fetchTopicFeed(topicIds);
+        }
+
+        if (next.hcsFeed.length === 0) {
+          next.hcsFeed = deriveFeedFromRequests(next.requests);
         }
 
         next.connected = true;
