@@ -31,34 +31,42 @@ function decodeAbiWord(data: string, wordIndex: number): string {
 async function fetchPulseScheduledEvents(
   contractAddr: string,
 ): Promise<ScheduleEntry[]> {
-  const url = `${MIRROR_BASE}/api/v1/contracts/${contractAddr}/results/logs?order=desc&limit=50`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const json = await res.json();
-  const logs: Array<{ topics: string[]; data: string; timestamp: string }> =
-    json.logs || [];
-
   const entries: ScheduleEntry[] = [];
-  for (const log of logs) {
-    if ((log.topics[0] ?? "").toLowerCase() !== PULSE_SCHEDULED_TOPIC0) continue;
-    if (log.data.length < 194) continue; // need 3 x 32-byte words + 0x prefix
+  let nextUrl: string | null =
+    `${MIRROR_BASE}/api/v1/contracts/${contractAddr}/results/logs?order=desc&limit=100`;
 
-    try {
-      const addrHex = decodeAbiWord(log.data, 0);
-      const rawAddr = "0x" + addrHex.slice(24);
-      const pulseId = parseInt(decodeAbiWord(log.data, 1), 16);
-      if (rawAddr === "0x" + "0".repeat(40)) continue;
+  while (nextUrl && entries.length < 50) {
+    const res: Response = await fetch(nextUrl);
+    if (!res.ok) break;
+    const json = await res.json();
+    const logs: Array<{ topics: string[]; data: string; timestamp: string }> =
+      json.logs || [];
 
-      entries.push({
-        scheduleAddress: rawAddr,
-        pulseId,
-        createdAt: parseFloat(log.timestamp) * 1000,
-        status: "UNKNOWN",
-      });
-    } catch {
-      // skip malformed logs
+    for (const log of logs) {
+      if ((log.topics[0] ?? "").toLowerCase() !== PULSE_SCHEDULED_TOPIC0) continue;
+      if (log.data.length < 194) continue;
+
+      try {
+        const addrHex = decodeAbiWord(log.data, 0);
+        const rawAddr = "0x" + addrHex.slice(24);
+        const pulseId = parseInt(decodeAbiWord(log.data, 1), 16);
+        if (rawAddr === "0x" + "0".repeat(40)) continue;
+
+        entries.push({
+          scheduleAddress: rawAddr,
+          pulseId,
+          createdAt: parseFloat(log.timestamp) * 1000,
+          status: "UNKNOWN",
+        });
+      } catch {
+        // skip malformed logs
+      }
     }
+
+    const nextLink: string | undefined = json.links?.next;
+    nextUrl = nextLink ? `${MIRROR_BASE}${nextLink}` : null;
   }
+
   return entries;
 }
 
@@ -134,7 +142,7 @@ export function ScheduleTimelinePanel() {
         if (cancelled) return;
 
         const enriched = await Promise.all(
-          raw.slice(0, 10).map(async (entry) => {
+          raw.slice(0, 15).map(async (entry) => {
             const { status, executedAt, entityId } =
               await fetchScheduleStatus(entry.scheduleAddress);
             return {
