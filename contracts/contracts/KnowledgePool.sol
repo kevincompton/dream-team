@@ -192,14 +192,13 @@ contract KnowledgePool is HederaScheduleService {
     function stopPulse() external {
         require(msg.sender == owner, "Not owner");
         pulseInterval = 0;
-        emit DeviceCommand(nextCommandId++, "stop sensor");
         emit DeviceCommand(nextCommandId++, "stop servo");
         emit PulseStopped(nextPulseId);
     }
 
     /// @notice Called automatically by the Hedera Schedule Service.
-    ///         Alternates servo on/off each call and emits matching
-    ///         sensor + summary commands, then reschedules itself.
+    ///         Alternates servo on/off each call, emits a summary
+    ///         request on stop, then reschedules itself.
     function pulse() external {
         require(
             msg.sender == address(this) || msg.sender == owner,
@@ -211,10 +210,8 @@ contract KnowledgePool is HederaScheduleService {
 
         if (servoOn) {
             emit DeviceCommand(nextCommandId++, "start servo");
-            emit DeviceCommand(nextCommandId++, "start sensor");
         } else {
             emit DeviceCommand(nextCommandId++, "stop servo");
-            emit DeviceCommand(nextCommandId++, "stop sensor");
             emit DeviceCommand(nextCommandId++, "request sensor summary");
         }
 

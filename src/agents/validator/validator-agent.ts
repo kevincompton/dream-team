@@ -23,6 +23,7 @@ import {
 } from '../../common/utils.js';
 import { ValidateKnowledgeTool } from './tools/validate-knowledge.js';
 import { CreateKnowledgeTopicTool } from './tools/create-knowledge-topic.js';
+import { SendHip991MessageTool } from './tools/send-hip991-message.js';
 import { GetKnowledgeTool } from '../../tools/get-knowledge.js';
 import { KnowledgeCountTool } from '../../tools/knowledge-count.js';
 
@@ -113,26 +114,46 @@ export class ValidatorAgent {
     });
 
     const sensorInboundTopicId = this.env.SENSOR_INBOUND_TOPIC_ID;
+    const knowledgeRegistryTopicId = this.env.KNOWLEDGE_REGISTRY_TOPIC_ID;
 
     const prompt = ChatPromptTemplate.fromMessages([
       [
         'system',
-        `You are a Knowledge Validator agent for the HIVE Protocol on Hedera.
+        `You are a Knowledge Validator agent for the HIVE Protocol on Hedera. You are the authority on all validated knowledge in the system.
 
-Your job is to validate knowledge items, create HCS-2 topics for validated knowledge, and coordinate with sensor agents.
-
+VALIDATION:
 When given a knowledge item to validate:
 1. Use validate_knowledge to attest the item on-chain
 2. If validation succeeds, use create_knowledge_topic to create an HCS-2 topic and register it in the Knowledge registry
 
-When you receive an inbound message on the knowledge topic, use submit_topic_message to send a request to the sensor agent's inbound topic (${sensorInboundTopicId || 'not configured'}) asking for a summary of today's sensor data readings.
+INBOUND MESSAGE HANDLING:
+When you receive a message on the knowledge inbound topic, classify it into one of these categories and act accordingly:
+
+1. SENSOR DATA REQUEST — the message asks for sensor readings, summaries, or IoT data.
+   Action: Forward the request to the sensor agent by sending it to topic ${sensorInboundTopicId || 'not configured'} using send_hip991_message.
+
+2. SENSOR DATA REPLY — the message contains actual sensor data, readings, or analysis results (typically a response from the sensor agent).
+   Action: Store it by publishing to the knowledge registry topic ${knowledgeRegistryTopicId || 'not configured'} using send_hip991_message.
+
+3. KNOWLEDGE QUERY — the message asks a question about validated knowledge (e.g. "What research has been done on X?" or "Summarize knowledge about Y").
+   Action: Look up relevant knowledge to answer the question:
+   a. Start by querying the Knowledge Registry topic ${knowledgeRegistryTopicId || 'not configured'} using get_topic_messages — this is the HCS-2 index of ALL knowledge topics. Each registry entry contains metadata with a knowledgeId and a targetTopicId pointing to the individual knowledge topic.
+   b. Use get_knowledge to retrieve the on-chain content for relevant knowledge item IDs found in the registry.
+   c. For deeper detail, query the individual knowledge topic (targetTopicId from the registry entry) using get_topic_messages to read any additional data published there.
+   d. Compose a helpful answer based on the actual knowledge content you found.
+   e. Send your answer back to the requester's topic if one was specified in the message, or to the knowledge registry topic ${knowledgeRegistryTopicId || 'not configured'} using send_hip991_message.
+
+4. UNKNOWN — if the message doesn't fit the above categories, log it and take no action.
+
+Always use your judgment to classify messages. Be thorough when answering knowledge queries — cite the knowledge item IDs and content you reference.
 
 Current Configuration:
 - Network: ${network}
 - Contract: ${this.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS}
 - Account: ${accountId || 'unknown'}
 - Flow order: ${this.flowOrderResolved || 'auto'}
-- Sensor inbound topic: ${sensorInboundTopicId || 'not configured'}`,
+- Sensor inbound topic: ${sensorInboundTopicId || 'not configured'}
+- Knowledge registry topic: ${knowledgeRegistryTopicId || 'not configured'}`,
       ],
       ['user', '{input}'],
       ['placeholder', '{agent_scratchpad}'],
@@ -149,6 +170,11 @@ Current Configuration:
       network,
       registryTopicId: this.env.KNOWLEDGE_REGISTRY_TOPIC_ID,
     });
+    const sendHip991MessageTool = new SendHip991MessageTool({
+      accountId: accountId || '',
+      privateKey,
+      network,
+    });
     const getKnowledgeTool = new GetKnowledgeTool(this.contract);
     const knowledgeCountTool = new KnowledgeCountTool(this.contract);
     const hederaTools = this.hederaToolkit.getTools();
@@ -157,6 +183,7 @@ Current Configuration:
       ...hederaTools,
       validateKnowledgeTool,
       createKnowledgeTopicTool,
+      sendHip991MessageTool,
       getKnowledgeTool,
       knowledgeCountTool,
     ];
@@ -232,10 +259,10 @@ Current Configuration:
             console.log(`[VALIDATOR] Inbound message #${seq}: "${decoded.slice(0, 100)}"`);
 
             this.agentExecutor!.invoke({
-              input: `You received an inbound message on the knowledge topic: "${decoded}". Use submit_topic_message to send a message to topic ${this.env.SENSOR_INBOUND_TOPIC_ID} requesting a summary of today's sensor data readings.`,
+              input: `Inbound message received on knowledge topic (seq #${seq}):\n\n"${decoded}"\n\nClassify this message and take the appropriate action as described in your instructions.`,
             })
-              .then((result) => console.log(`[VALIDATOR] Agent response: ${result.output}`))
-              .catch((err) => console.warn('[VALIDATOR] Agent invocation failed:', err instanceof Error ? err.message : err));
+              .then((result) => console.log(`[VALIDATOR] Agent handled inbound #${seq}: ${result.output}`))
+              .catch((err) => console.warn(`[VALIDATOR] Agent failed on inbound #${seq}:`, err instanceof Error ? err.message : err));
           },
         );
     }

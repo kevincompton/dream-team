@@ -426,13 +426,14 @@ async function pollDeviceCommands(): Promise<void> {
       lastPulseTimestamp = log.timestamp;
       console.log(`[DEVICE-BRIDGE] #${evt.commandId}: "${evt.command}"`);
 
-      await sendTelegramMessage(evt.command);
-
+      const sensorInboundTopic = process.env.SENSOR_INBOUND_TOPIC_ID;
       if (evt.command === 'request sensor summary') {
         const knowledgeInboundTopic = process.env.KNOWLEDGE_INBOUND_TOPIC_ID;
         if (knowledgeInboundTopic) {
           await sendHcsMessage(knowledgeInboundTopic, 'Provide a summary of today\'s sensor data readings');
         }
+      } else if (sensorInboundTopic) {
+        await sendHcsMessage(sensorInboundTopic, evt.command);
       }
     }
   } catch (err) {

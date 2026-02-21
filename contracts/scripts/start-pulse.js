@@ -18,7 +18,7 @@ async function main() {
   }
 
   const action = process.env.PULSE_ACTION || process.argv[2] || "start";
-  const interval = Number(process.env.PULSE_INTERVAL_SECONDS || 30);
+  const interval = Number(process.env.PULSE_INTERVAL_SECONDS || 60);
 
   const [signer] = await hre.ethers.getSigners();
   const contract = new hre.ethers.Contract(contractAddress, KNOWLEDGE_POOL_ABI, signer);
