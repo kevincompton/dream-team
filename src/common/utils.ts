@@ -46,3 +46,22 @@ export function shortAddress(value: string): string {
   if (!value || value.length < 12) return value;
   return `${value.slice(0, 8)}...${value.slice(-6)}`;
 }
+
+export interface Hcs10MessageOptions {
+  operatorTopicId: string;
+  operatorAccountId: string;
+  senderAccountId: string;
+  value: string;
+}
+
+export function formatHcs10Message(opts: Hcs10MessageOptions): string {
+  return JSON.stringify({
+    p: 'hcs-10',
+    op: 'message',
+    operator_id: `${opts.operatorTopicId}@${opts.operatorAccountId}`,
+    data: {
+      accountId: opts.senderAccountId,
+      value: opts.value,
+    },
+  });
+}

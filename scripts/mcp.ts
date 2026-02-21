@@ -14,7 +14,7 @@ import {
 } from '@hashgraph/sdk';
 import { createHederaEvmProvider } from '../src/shared/hedera-rpc.js';
 import { KNOWLEDGE_POOL_ABI } from '../src/common/contract.js';
-import { HBAR_DECIMALS, shortAddress } from '../src/common/utils.js';
+import { HBAR_DECIMALS, shortAddress, formatHcs10Message } from '../src/common/utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -390,13 +390,20 @@ async function sendHcsMessage(topicId: string, message: string): Promise<void> {
     const client = network === 'mainnet' ? HederaClient.forMainnet() : HederaClient.forTestnet();
     client.setOperator(AccountId.fromString(accountId), parseSdkKey(privateKey));
 
+    const hcs10Payload = formatHcs10Message({
+      operatorTopicId: topicId,
+      operatorAccountId: accountId,
+      senderAccountId: accountId,
+      value: message,
+    });
+
     const tx = await new TopicMessageSubmitTransaction()
       .setTopicId(TopicId.fromString(topicId))
-      .setMessage(message)
+      .setMessage(hcs10Payload)
       .execute(client);
 
     const receipt = await tx.getReceipt(client);
-    console.log(`[DEVICE-BRIDGE] HCS message sent to ${topicId} (seq: ${receipt.topicSequenceNumber})`);
+    console.log(`[DEVICE-BRIDGE] HCS-10 message sent to ${topicId} (seq: ${receipt.topicSequenceNumber})`);
   } catch (err) {
     console.warn('[DEVICE-BRIDGE] HCS send failed:', err instanceof Error ? err.message : err);
   }

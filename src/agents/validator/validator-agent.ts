@@ -135,15 +135,15 @@ When you receive a message on the knowledge inbound topic, classify it into one 
 2. SENSOR DATA REPLY — the message contains actual sensor data, readings, or analysis results (typically a response from the sensor agent).
    Action: Store it by publishing to the knowledge registry topic ${knowledgeRegistryTopicId || 'not configured'} using send_hip991_message.
 
-3. KNOWLEDGE QUERY — the message asks a question about validated knowledge (e.g. "What research has been done on X?" or "Summarize knowledge about Y").
-   Action: Look up relevant knowledge to answer the question:
-   a. Start by querying the Knowledge Registry topic ${knowledgeRegistryTopicId || 'not configured'} using get_topic_messages — this is the HCS-2 index of ALL knowledge topics. Each registry entry contains metadata with a knowledgeId and a targetTopicId pointing to the individual knowledge topic.
-   b. Use get_knowledge to retrieve the on-chain content for relevant knowledge item IDs found in the registry.
-   c. For deeper detail, query the individual knowledge topic (targetTopicId from the registry entry) using get_topic_messages to read any additional data published there.
-   d. Compose a helpful answer based on the actual knowledge content you found.
-   e. Send your answer back to the requester's topic if one was specified in the message, or to the knowledge registry topic ${knowledgeRegistryTopicId || 'not configured'} using send_hip991_message.
+3. KNOWLEDGE QUERY — ANY question or request from an external agent that is not about sensor data. This is the DEFAULT category. If someone asks a question — about anything at all (games, math, science, history, coding, strategy, decisions, etc.) — it is a KNOWLEDGE QUERY. External agents pay HIP-991 fees to reach this topic, so every inbound question deserves an answer.
+   Action:
+   a. First check if your validated knowledge is relevant: query the Knowledge Registry topic ${knowledgeRegistryTopicId || 'not configured'} using get_topic_messages, and use get_knowledge to retrieve on-chain content for relevant items.
+   b. Compose your best answer. If validated knowledge is relevant, cite the knowledge item IDs. If not, answer using your general knowledge — the requester paid to ask, so always provide a useful response.
+   c. Send your answer back to the requester's topic if one was specified in the message, or to the knowledge registry topic ${knowledgeRegistryTopicId || 'not configured'} using send_hip991_message.
 
-4. UNKNOWN — if the message doesn't fit the above categories, log it and take no action.
+4. UNKNOWN — ONLY use this if the message is completely unintelligible (random bytes, empty, corrupted). A question on ANY topic from an external agent should be treated as a KNOWLEDGE QUERY, not UNKNOWN.
+
+All outbound messages via send_hip991_message are automatically wrapped in HCS-10 protocol format. Just provide the plain text content — the tool handles the envelope.
 
 Always use your judgment to classify messages. Be thorough when answering knowledge queries — cite the knowledge item IDs and content you reference.
 
@@ -170,10 +170,13 @@ Current Configuration:
       network,
       registryTopicId: this.env.KNOWLEDGE_REGISTRY_TOPIC_ID,
     });
+    const knowledgeInboundTopicId =
+      this.env.KNOWLEDGE_INBOUND_TOPIC_ID || '';
     const sendHip991MessageTool = new SendHip991MessageTool({
       accountId: accountId || '',
       privateKey,
       network,
+      operatorTopicId: knowledgeInboundTopicId,
     });
     const getKnowledgeTool = new GetKnowledgeTool(this.contract);
     const knowledgeCountTool = new KnowledgeCountTool(this.contract);
@@ -254,12 +257,25 @@ Current Configuration:
             console.error('[VALIDATOR] Inbound subscription error:', error);
           },
           (message) => {
-            const decoded = Buffer.from(message.contents).toString('utf8');
+            const raw = Buffer.from(message.contents).toString('utf8');
             const seq = message.sequenceNumber.toString();
-            console.log(`[VALIDATOR] Inbound message #${seq}: "${decoded.slice(0, 100)}"`);
+
+            let messageText = raw;
+            let senderAccount = 'unknown';
+            try {
+              const parsed = JSON.parse(raw);
+              if (parsed?.p === 'hcs-10' && parsed?.data?.value) {
+                messageText = parsed.data.value;
+                senderAccount = parsed.data.accountId || senderAccount;
+              }
+            } catch {
+              // not JSON / not HCS-10, use raw text
+            }
+
+            console.log(`[VALIDATOR] Inbound HCS-10 #${seq} from ${senderAccount}: "${messageText.slice(0, 100)}"`);
 
             this.agentExecutor!.invoke({
-              input: `Inbound message received on knowledge topic (seq #${seq}):\n\n"${decoded}"\n\nClassify this message and take the appropriate action as described in your instructions.`,
+              input: `Inbound message received on knowledge topic (seq #${seq}, sender: ${senderAccount}):\n\n"${messageText}"\n\nClassify this message and take the appropriate action as described in your instructions.`,
             })
               .then((result) => console.log(`[VALIDATOR] Agent handled inbound #${seq}: ${result.output}`))
               .catch((err) => console.warn(`[VALIDATOR] Agent failed on inbound #${seq}:`, err instanceof Error ? err.message : err));
