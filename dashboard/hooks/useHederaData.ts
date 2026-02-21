@@ -412,8 +412,8 @@ export function useHederaData({ enabled, topicId, accountIds = [] }: HederaDataO
         }
 
         const topicIds = Array.from(new Set([
-          ...(isTopicId(topicId) ? [topicId] : []),
-          ...next.requests.map((request) => request.topicId).filter((value) => isTopicId(value)),
+          ...(isTopicId(topicId) ? [topicId!] : []),
+          ...next.requests.map((request) => request.topicId).filter((value): value is string => isTopicId(value)),
         ]));
 
         if (topicIds.length > 0) {

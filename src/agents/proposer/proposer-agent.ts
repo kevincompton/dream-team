@@ -13,12 +13,13 @@ import {
 import { EnvironmentConfig } from '../../common/agent-config.js';
 import { createKnowledgePoolContract } from '../../common/contract.js';
 import { createHederaEvmProvider } from '../../shared/hedera-rpc.js';
-import { hashscanContractUrl, delay } from '../../common/utils.js';
+import { hashscanContractUrl } from '../../common/utils.js';
 import { ProposeKnowledgeTool } from './tools/propose-knowledge.js';
-import { CountUnexecutedTool } from './tools/count-unexecuted.js';
 import { KnowledgeCountTool } from '../../tools/knowledge-count.js';
 
 config();
+
+const BACKLOG_LIMIT = 3;
 
 export class ProposerAgent {
   private env: EnvironmentConfig;
@@ -28,6 +29,7 @@ export class ProposerAgent {
   private agentExecutor?: AgentExecutor;
   private hederaToolkit?: HederaLangchainToolkit;
   private client?: Client;
+  private contract?: ethers.Contract;
 
   constructor() {
     this.env = process.env as NodeJS.ProcessEnv & EnvironmentConfig;
@@ -71,7 +73,7 @@ export class ProposerAgent {
 
     const provider = createHederaEvmProvider();
     const wallet = new ethers.Wallet(privateKey, provider);
-    const contract = createKnowledgePoolContract(
+    this.contract = createKnowledgePoolContract(
       this.env.KNOWLEDGE_POOL_CONTRACT_ADDRESS!,
       wallet,
     );
@@ -90,13 +92,14 @@ export class ProposerAgent {
         'system',
         `You are a Knowledge Proposer agent for the HIVE Protocol on Hedera.
 
-Your job is to generate novel, valuable research questions and propose them to the KnowledgePool contract.
+Your ONLY job: generate a novel, specific research question and submit it using propose_knowledge.
+
+TOPICS: Hedera network performance, DeFi protocols on Hedera, HCS/HTS best practices, smart contract optimization, agent coordination patterns, blockchain security, or IoT sensor integration.
 
 RULES:
-- Before proposing, check the backlog using count_unexecuted. If there are more than 3 unexecuted items, do NOT propose -- respond that you are waiting for the backlog to clear.
-- Generate research questions about: Hedera network performance, DeFi protocols on Hedera, HCS/HTS best practices, smart contract optimization, agent coordination patterns, or blockchain security.
-- Each question should be specific, measurable, and relevant to the Hedera ecosystem.
-- Use propose_knowledge to submit the question on-chain.
+- Each question must be specific, measurable, and relevant to the Hedera ecosystem.
+- Do NOT repeat previous questions. Be creative and varied.
+- Call propose_knowledge exactly once with your question.
 
 Current Configuration:
 - Network: ${network}
@@ -107,15 +110,13 @@ Current Configuration:
       ['placeholder', '{agent_scratchpad}'],
     ]);
 
-    const proposeKnowledgeTool = new ProposeKnowledgeTool(contract, network);
-    const countUnexecutedTool = new CountUnexecutedTool(contract);
-    const knowledgeCountTool = new KnowledgeCountTool(contract);
+    const proposeKnowledgeTool = new ProposeKnowledgeTool(this.contract, network);
+    const knowledgeCountTool = new KnowledgeCountTool(this.contract);
     const hederaTools = this.hederaToolkit.getTools();
 
     const allTools = [
       ...hederaTools,
       proposeKnowledgeTool,
-      countUnexecutedTool,
       knowledgeCountTool,
     ];
 
@@ -142,6 +143,25 @@ Current Configuration:
     console.log('[PROPOSER] Initialized successfully');
   }
 
+  private async countUnexecuted(): Promise<number> {
+    if (!this.contract) return 0;
+    try {
+      const count = Number(await this.contract.knowledgeCount());
+      let unexecuted = 0;
+      for (let id = 1; id <= count; id++) {
+        const knowledge = await this.contract.getKnowledge(id);
+        if (!knowledge[4]) unexecuted++;
+      }
+      return unexecuted;
+    } catch (err) {
+      console.warn(
+        '[PROPOSER] Backlog check failed, proceeding anyway:',
+        err instanceof Error ? err.message : err,
+      );
+      return 0;
+    }
+  }
+
   async start(): Promise<void> {
     if (!this.agentExecutor) {
       throw new Error('Agent not initialized. Call initialize() first.');
@@ -160,7 +180,7 @@ Current Configuration:
       10,
     );
     console.log(
-      `[PROPOSER] Auto-proposing every ${intervalSeconds}s (backlog limit: 3)`,
+      `[PROPOSER] Auto-proposing every ${intervalSeconds}s (backlog limit: ${BACKLOG_LIMIT})`,
     );
 
     const runCycle = async () => {
@@ -174,9 +194,21 @@ Current Configuration:
           return;
         }
 
+        const unexecuted = await this.countUnexecuted();
+        if (unexecuted > BACKLOG_LIMIT) {
+          console.log(
+            `[PROPOSER] Backlog has ${unexecuted} unexecuted items (limit: ${BACKLOG_LIMIT}), waiting...`,
+          );
+          return;
+        }
+
+        console.log(
+          `[PROPOSER] Backlog clear (${unexecuted}/${BACKLOG_LIMIT}), proposing...`,
+        );
+
         const result = await this.agentExecutor!.invoke({
           input:
-            'Check the current backlog of unexecuted items. If 3 or fewer are pending, generate a novel and specific research question about the Hedera ecosystem and propose it to the contract. If the backlog is too large, explain that you are waiting.',
+            'Generate a novel and specific research question about the Hedera ecosystem and propose it to the contract using propose_knowledge.',
         });
 
         console.log(`[PROPOSER] ${result.output}`);
