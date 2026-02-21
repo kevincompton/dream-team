@@ -21,7 +21,7 @@
     telegram: {
       enabled: true,
       // Get this from @BotFather on Telegram: /newbot
-      botToken: "8301631906:AAEbRMYwKBrhOs04XGFAY36SzN_JMmZyd1o",
+      botToken: "Example token",
       dmPolicy: "pairing", // first DM needs approval: run `openclaw pairing list telegram`
       groups: {
         "*": { requireMention: true }, // in groups: mention the bot

@@ -45,6 +45,7 @@ export interface HcsMessage {
   action: string;
   hash: string;
   type: HcsMessageType;
+  topicId?: string;
 }
 
 export interface TransferEvent {

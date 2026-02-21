@@ -6,7 +6,7 @@ import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import type { Agent, AgentState } from "@/types/dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Panel } from "@/components/ui/panel";
-import { cn, formatRelativeTime, truncateAddress } from "@/lib/utils";
+import { cn, formatNumber, formatRelativeTime, truncateAddress } from "@/lib/utils";
 
 const stateStyles: Record<AgentState, string> = {
   IDLE: "border-slate-500/40 bg-slate-500/10 text-slate-300",
@@ -102,6 +102,12 @@ export function AgentStatusPanel({ agents }: AgentStatusPanelProps) {
               <div className="mb-2 flex items-center justify-between text-xs text-hive-muted">
                 <span>Total tx</span>
                 <span className="font-mono text-hive-text">{agent.totalTransactions}</span>
+              </div>
+              <div className="mb-2 flex items-center justify-between text-xs text-hive-muted">
+                <span>Balance</span>
+                <span className="font-mono text-hive-text" title={`${agent.balance} HBAR`}>
+                  {formatNumber(agent.balance, 6)} HBAR
+                </span>
               </div>
 
               <div className="h-12 w-full">

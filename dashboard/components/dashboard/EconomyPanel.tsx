@@ -14,7 +14,8 @@ interface EconomyPanelProps {
 
 export function EconomyPanel({ economy }: EconomyPanelProps) {
   const [isMounted, setIsMounted] = useState(false);
-  const progress = Math.min(100, (economy.circulating / 1_000_000) * 100);
+  const trackedTotal = economy.inPools + economy.distributed + economy.staked;
+  const progress = trackedTotal > 0 ? Math.min(100, (economy.inPools / trackedTotal) * 100) : 0;
   const radius = 50;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (progress / 100) * circumference;
@@ -43,8 +44,8 @@ export function EconomyPanel({ economy }: EconomyPanelProps) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <p className="font-mono text-xl text-hive-text">{formatNumber(economy.circulating)}</p>
-          <p className="text-xs text-hive-muted">HBAR</p>
+          <p className="font-mono text-xl text-hive-text">{formatNumber(economy.circulating, 6)}</p>
+          <p className="text-xs text-hive-muted">HBAR in Pool</p>
         </div>
       </div>
 
@@ -53,22 +54,26 @@ export function EconomyPanel({ economy }: EconomyPanelProps) {
           <span>In Pools</span>
           <span className="flex items-center gap-1 font-mono text-hive-primary">
             <ArrowUpRight className="h-3 w-3" />
-            {formatNumber(economy.inPools)}
+            {formatNumber(economy.inPools, 6)}
           </span>
         </div>
         <div className="flex items-center justify-between text-hive-muted">
           <span>Distributed</span>
           <span className="flex items-center gap-1 font-mono text-hive-secondary">
             <ArrowUpRight className="h-3 w-3" />
-            {formatNumber(economy.distributed)}
+            {formatNumber(economy.distributed, 6)}
           </span>
         </div>
         <div className="flex items-center justify-between text-hive-muted">
           <span>Staked</span>
           <span className="flex items-center gap-1 font-mono text-hive-warning">
             <ArrowDownRight className="h-3 w-3" />
-            {formatNumber(economy.staked)}
+            {formatNumber(economy.staked, 6)}
           </span>
+        </div>
+        <div className="flex items-center justify-between text-hive-muted">
+          <span>Pool Share</span>
+          <span className="font-mono text-hive-text">{formatNumber(progress, 2)}%</span>
         </div>
       </div>
 
