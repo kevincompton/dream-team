@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {
+    HederaScheduleService
+} from "@hashgraph/smart-contracts/contracts/system-contracts/hedera-schedule-service/HederaScheduleService.sol";
+import {
+    HederaResponseCodes
+} from "@hashgraph/smart-contracts/contracts/system-contracts/HederaResponseCodes.sol";
+
 /**
  * @title KnowledgePool
- * @dev Contrato principal para HIVE Protocol: pool de conocimiento con pagos
- *      automáticos (estilo HIP-991). Los agentes financian el pool y reciben
- *      HBAR al proponer, validar y ejecutar conocimiento.
+ * @dev HIVE Protocol knowledge marketplace with HIP-1215 on-chain scheduling.
+ *      Agents fund the pool and receive HBAR for proposing, validating, and
+ *      executing knowledge.  The contract can self-schedule recurring "pulse"
+ *      calls via the Hedera Schedule Service system contract (0x16b), emitting
+ *      SensorPulse events that an off-chain bridge forwards to sensor agents.
  */
-contract KnowledgePool {
+contract KnowledgePool is HederaScheduleService {
     struct Knowledge {
         address proposer;
         string content;
@@ -46,7 +55,7 @@ contract KnowledgePool {
     error InsufficientPoolBalance();
     error TransferFailed();
 
-    constructor(uint256 _rewardProposer, uint256 _rewardValidator, uint256 _rewardExecutor) {
+    constructor(uint256 _rewardProposer, uint256 _rewardValidator, uint256 _rewardExecutor) payable {
         owner = msg.sender;
         rewardProposer = _rewardProposer;
         rewardValidator = _rewardValidator;
@@ -152,5 +161,71 @@ contract KnowledgePool {
         require(id > 0 && id <= knowledgeCount, "Knowledge does not exist");
         Knowledge memory k = knowledgePool[id];
         return (k.proposer, k.content, k.timestamp, k.validated, k.executed, k.validator, k.executor);
+    }
+
+    // ─── HIP-755 / HIP-1215 On-Chain Scheduling ──────────────────
+    //
+    // Single schedule chain: pulse() reschedules itself once per
+    // execution (the only recursion level Hedera allows).
+    // Servo toggles every pulse; sensor start/stop rides the same
+    // cadence — no second scheduleCall needed.
+
+    uint256 public nextPulseId;
+    uint256 public nextCommandId;
+    uint256 public pulseInterval;
+    bool public servoOn;
+    uint256 internal constant PULSE_GAS_LIMIT = 2_000_000;
+
+    event DeviceCommand(uint256 indexed commandId, string command);
+    event PulseScheduled(address scheduleAddress, uint256 pulseId, uint256 time);
+    event PulseStopped(uint256 lastPulseId);
+
+    /// @notice Kick off recurring pulse schedule.
+    function startPulse(uint256 intervalSeconds) external {
+        require(msg.sender == owner, "Not owner");
+        require(intervalSeconds > 0, "interval must be > 0");
+        pulseInterval = intervalSeconds;
+        _schedulePulse(block.timestamp + intervalSeconds);
+    }
+
+    /// @notice Stop all future scheduling. Only owner.
+    function stopPulse() external {
+        require(msg.sender == owner, "Not owner");
+        pulseInterval = 0;
+        emit DeviceCommand(nextCommandId++, "stop servo");
+        emit PulseStopped(nextPulseId);
+    }
+
+    /// @notice Called automatically by the Hedera Schedule Service.
+    ///         Alternates servo on/off each call, emits a summary
+    ///         request on stop, then reschedules itself.
+    function pulse() external {
+        require(
+            msg.sender == address(this) || msg.sender == owner,
+            "Not authorized"
+        );
+
+        nextPulseId++;
+        servoOn = !servoOn;
+
+        if (servoOn) {
+            emit DeviceCommand(nextCommandId++, "start servo");
+        } else {
+            emit DeviceCommand(nextCommandId++, "stop servo");
+            emit DeviceCommand(nextCommandId++, "request sensor summary");
+        }
+
+        if (pulseInterval > 0) {
+            _schedulePulse(block.timestamp + pulseInterval);
+        }
+    }
+
+    function _schedulePulse(uint256 time) internal {
+        bytes memory callData = abi.encodeWithSelector(this.pulse.selector);
+        (int64 rc, address scheduleAddress) = scheduleCall(
+            address(this), time, PULSE_GAS_LIMIT, 0, callData
+        );
+        require(rc == HederaResponseCodes.SUCCESS, "Schedule failed");
+        emit PulseScheduled(scheduleAddress, nextPulseId, time);
     }
 }

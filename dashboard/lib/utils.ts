@@ -52,6 +52,10 @@ export function hashscanTopicUrl(topicId: string) {
   return `https://hashscan.io/${getHashscanNetwork()}/topic/${encodeURIComponent(topicId)}`;
 }
 
+export function hashscanScheduleUrl(scheduleId: string) {
+  return `https://hashscan.io/${getHashscanNetwork()}/schedule/${encodeURIComponent(scheduleId)}`;
+}
+
 export function hashscanSearchUrl(query: string) {
   return hashscanTxUrl(query);
 }

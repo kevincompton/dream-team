@@ -20,12 +20,91 @@ ExecutorAgent (Sensor Agent) — researches and executes
 ValidatorAgent — attests + creates HIP-991 topic  
 ↓ paid knowledge topic live on Hedera HCS
 
+### Proposed HCS Structure
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         HEDERA CONSENSUS SERVICE (HCS)                           │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  EXECUTOR TOPICS (HIP-991) — one per Executor
+  ┌─────────────────────┐  ┌─────────────────────┐
+  │ Executor A          │  │ Executor B          │  ...
+  │ • HIP-755 triggers  │  │ • Sensor data       │
+  │   sensing → writes  │  │ • Validator pays    │
+  │   sensor data       │  │   to query          │
+  └──────────┬──────────┘  └──────────┬──────────┘
+             │                        │
+             │  Validator pays to query
+             │  Executor responds (from topic)
+             │
+             ▼  Validator attests → answer added as message
+  ┌─────────────────────────────────────────────────────┐
+  │  KNOWLEDGE TOPICS (HIP-991)                          │
+  │  • Attested answers (Executor responses)             │
+  │  • User pays to read                                 │
+  │  • Knowledge base for responding to user questions  │
+  └─────────────────────────────────────────────────────┘
+
+  Flow: User question → MCP routes → Validator queries Executor (pays) →
+        Executor responds from its topic → Validator attests →
+        Answer added to Knowledge topic → Knowledge topics = user response source.
+
+  Note: MCP key in Fee Exempt Key List on all topics — reads without paying.
+```
+
+### Suggested Changes for HCS
+
+1. **Remove KnowledgePool contract** — HIP-991 can handle the economy. Topic fees (pay-to-read) replace the pool-based reward flow; Validator pays Executor topics, User pays Knowledge topics.
+
+2. **Replace ProposerAgent with MCP routing** — MCP reads from all topics (fee-exempt) and determines which agents and/or attestations are relevant for the user's question. No separate proposer; questions come from users via OpenClaw, and MCP routes to the right Executor(s) or existing Knowledge topics.
+
+3. **OpenClaw client receives topic data from MCP** — MCP connects the OpenClaw client instance to relevant Executor topics and attestation topics. If relevant data lives on an Executor, MCP triggers the Validator Agent to buy answers from those Executors; the Validator updates its attestation topics with the new messages, then MCP returns the attestation data (including any new data from executor responses) to the client. The client reasons over the data and produces a response. Flow:
+
+```
+User (WhatsApp): "What's the temperature trend in building A and B?"
+    ↓
+OpenClaw agent receives message
+    ↓
+MCP determines relevant topics (Executor topics + attestation topics)
+    ↓
+If data needed from Executors → MCP triggers Validator Agent
+    ↓
+Validator buys answers from Executors, attests, updates attestation topics
+    ↓
+MCP returns all topic data (attestations + Executor messages) to the client
+    ↓
+OpenClaw client reasons over the data → generates response
+    ↓
+Client replies via OpenClaw → User sees answer on WhatsApp
+```
+
+## Agent Architecture
+
+Agents are built with **hedera-agent-kit** + **LangChain** tool-calling pattern:
+
+- Each agent initializes `HederaLangchainToolkit` with Hedera SDK plugins
+- Custom `StructuredTool` classes wrap domain logic (contract calls, HCS topic creation)
+- `ChatOpenAI` (gpt-4o-mini) drives tool selection via `AgentExecutor`
+- Outer poll loops stay in TypeScript for reliability; LLM handles decisions/tool calls
+
+```
+src/
+  common/           # Shared config, contract ABI, utilities
+  shared/           # Hedera EVM RPC provider
+  tools/            # Shared StructuredTools (GetKnowledge, KnowledgeCount, PoolBalance)
+  agents/
+    proposer/       # LLM generates novel research questions
+    executor/       # Hybrid poll-loop + LLM-driven execution
+    validator/      # Hybrid poll-loop + LLM-driven validation + HIP-991 topics
+```
+
 ## 1) Prerequisites
 
-- Node.js `>=22`
+- Node.js `>=20`
 - npm `>=10`
 - Hedera testnet account(s) with HBAR
-- API key for one LLM provider (Groq/Ollama/Anthropic)
+- OpenAI API key (used by LangChain agent framework)
 
 ## 2) Clone and Install
 
@@ -67,9 +146,8 @@ EXECUTOR_PRIVATE_KEY=0x...
 VALIDATOR_ACCOUNT_ID=0.0.xxxxxxx
 VALIDATOR_PRIVATE_KEY=0x...
 
-# LLM provider
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
+# OpenAI (used by hedera-agent-kit + LangChain)
+OPENAI_API_KEY=sk-...
 
 # Dashboard mode
 NEXT_PUBLIC_USE_MOCK_DATA=false
@@ -179,15 +257,21 @@ Root scripts:
 
 - `npm run setup:hedera` — validate Hedera credentials
 - `npm run create:hcs-topic` — create HCS topic helper
+- `npm run create:executor-registry` — create HCS-2 indexed registry for Executor topics (run once)
+- `npm run create:knowledge-registry` — create HCS-2 indexed registry for Knowledge topics (run once)
 - `npm run create:agent-wallets` — generate/fund agent wallet setup
 - `npm run deploy:contract` — deploy `KnowledgePool`
 - `npm run fund:pool` — fund rewards pool
 - `npm run set:rewards` — configure reward splits
 - `npm run status:chain` — print full chain health summary
-- `npm run run:all-agents` — legacy orchestrator
+- `npm run run:all-agents` — orchestrator with status monitoring
 - `npm run mcp` — MCP server + ordered agents startup
 - `npm run sensors` — run executor only
-- `npm run start:agents` — start agents helper script
+- `npm run start:agents` — start all agents (simple)
+- `npm run dev:proposer` — run proposer in dev mode
+- `npm run dev:executor` — run executor in dev mode
+- `npm run dev:validator` — run validator in dev mode
+- `npm run build` — compile TypeScript to dist/
 - `npm run start:dashboard` — run Next.js dashboard
 
 ## 8) Common Troubleshooting

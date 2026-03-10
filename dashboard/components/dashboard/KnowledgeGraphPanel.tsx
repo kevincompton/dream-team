@@ -51,7 +51,7 @@ export function KnowledgeGraphPanel({ nodes, links }: KnowledgeGraphPanelProps) 
           linkColor={() => "rgba(0, 212, 255, 0.35)"}
           onNodeClick={(node) => setSelectedNode(node as GraphNode)}
           nodeCanvasObject={(node, ctx) => {
-            const graphNode = node as GraphNode;
+            const graphNode = node as GraphNode & { x?: number; y?: number };
             ctx.fillStyle = "#00FFA3";
             ctx.beginPath();
             ctx.arc(graphNode.x || 0, graphNode.y || 0, Math.max(3, graphNode.val), 0, 2 * Math.PI);

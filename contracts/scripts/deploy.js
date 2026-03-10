@@ -12,31 +12,37 @@ function hashscanUrl(value) {
 }
 
 async function main() {
-  console.log("Desplegando KnowledgePool en Hedera...");
+  console.log("Deploying KnowledgePool on Hedera...");
   const HBAR_DECIMALS = 8;
 
-  // Recompensas por tarea (configuradas en HBAR, convertidas internamente a wei)
   const rewardProposer = hre.ethers.parseUnits(process.env.REWARD_PROPOSER_HBAR || "0.001", HBAR_DECIMALS);
   const rewardValidator = hre.ethers.parseUnits(process.env.REWARD_VALIDATOR_HBAR || "0.001", HBAR_DECIMALS);
   const rewardExecutor = hre.ethers.parseUnits(process.env.REWARD_EXECUTOR_HBAR || "0.001", HBAR_DECIMALS);
 
+  const INITIAL_HBAR = process.env.DEPLOY_FUND_HBAR || "5";
+
   const KnowledgePool = await hre.ethers.getContractFactory("KnowledgePool");
-  const knowledgePool = await KnowledgePool.deploy(rewardProposer, rewardValidator, rewardExecutor);
+  const knowledgePool = await KnowledgePool.deploy(rewardProposer, rewardValidator, rewardExecutor, {
+    value: hre.ethers.parseEther(INITIAL_HBAR),
+  });
 
   await knowledgePool.waitForDeployment();
   const address = await knowledgePool.getAddress();
+  const balance = await hre.ethers.provider.getBalance(address);
 
-  console.log("KnowledgePool desplegado en:", address);
-  console.log("HashScan contrato:", hashscanUrl(address));
+  console.log("KnowledgePool deployed at:", address);
+  console.log("HashScan:", hashscanUrl(address));
+  console.log("Contract balance:", hre.ethers.formatEther(balance), "HBAR");
   console.log(
-    "Recompensas por tarea (HBAR) - Proposer:",
+    "Rewards per task (HBAR) — Proposer:",
     hre.ethers.formatUnits(rewardProposer, HBAR_DECIMALS),
     "Validator:",
     hre.ethers.formatUnits(rewardValidator, HBAR_DECIMALS),
     "Executor:",
     hre.ethers.formatUnits(rewardExecutor, HBAR_DECIMALS)
   );
-  console.log("Guarda esta dirección en tu archivo .env como KNOWLEDGE_POOL_CONTRACT_ADDRESS");
+  console.log("\nAdd to .env:");
+  console.log(`KNOWLEDGE_POOL_CONTRACT_ADDRESS=${address}`);
 }
 
 main()

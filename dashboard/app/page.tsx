@@ -9,6 +9,7 @@ import { KnowledgeFlowPanel } from "@/components/dashboard/KnowledgeFlowPanel";
 import { KnowledgeGraphPanel } from "@/components/dashboard/KnowledgeGraphPanel";
 import { ReputationLeaderboard } from "@/components/dashboard/ReputationLeaderboard";
 import { TopNavbar } from "@/components/dashboard/TopNavbar";
+import { ScheduleTimelinePanel } from "@/components/dashboard/ScheduleTimelinePanel";
 import { TransferAnimationOverlay } from "@/components/dashboard/TransferAnimationOverlay";
 import { UserHistoryPanel } from "@/components/dashboard/UserHistoryPanel";
 import { useDashboardData } from "@/hooks/useDashboardData";
@@ -113,9 +114,10 @@ export default function Home() {
 
           <section
             data-panel-id="center-column"
-            className="grid min-h-0 grid-rows-[minmax(360px,auto)_minmax(360px,auto)] gap-4"
+            className="grid min-h-0 grid-rows-[minmax(360px,auto)_minmax(280px,auto)_minmax(360px,auto)] gap-4"
           >
             <KnowledgeFlowPanel requests={snapshot.requests} flowCounts={flowCounts} />
+            <ScheduleTimelinePanel />
             <HcsFeedPanel messages={snapshot.hcsFeed} />
           </section>
 
